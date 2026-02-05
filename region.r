@@ -1,16 +1,12 @@
-# =============================
 # Setup
-# =============================
 source("packages.r")    # libraries
 source("functions.r")   # model + poststrat functions
 
-# =============================
 # Load data
-# =============================
 pums21 <- readr::read_csv("IL21.csv")
-puma_sf <- readRDS("puma_sf_IL.rds")  # pre-saved IL PUMA boundaries (sf)
+# puma_sf <- readRDS("puma_sf_IL.rds")  # pre-saved IL PUMA boundaries (sf)
 
-puma_sf <- dplyr::mutate(puma_sf, PUMA = as.character(.data$PUMACE20))
+# puma_sf <- dplyr::mutate(puma_sf, PUMA = as.character(.data$PUMACE20))
 
 
 pums <- pums21 |>
@@ -44,10 +40,8 @@ modY <- pums$INCO
 modZ <- pums$POV
 modW <- pums$scaledWGT
 
-# =============================
 # Fit models
-# =============================
-nsim  <- 100; nburn <- 100; nthin <- 1
+nsim  <- 1000; nburn <- 1000; nthin <- 1
 
 unis_wage <- unis_gaus(
   X = modX, Y = modY, S = modS,
@@ -77,9 +71,8 @@ mult_br <- MTSM_br(
 
 )
 
-# =============================
+
 # Poststratify to PUMA
-# =============================
 C <- length(unique(pcells$PUMA))
 true_mean_dummy <- rep(NA_real_, C)
 
@@ -99,7 +92,7 @@ res_mg <- gaus_post(
   popsize = pcells$popsize
 )
 
-# Bernoulli (bios_post includes binomial sampling per-iteration)
+# Bernoulli
 res_ub <- bios_post(
   preds = unis_pov$Preds,
   true_mean = true_mean_dummy,
@@ -113,9 +106,7 @@ res_mb <- bios_post(
   popsize = pcells$popsize
 )
 
-# =============================
-# Horvitz–Thompson direct (third column for estimates)
-# =============================
+# Horvitz–Thompson direct
 ht_by_puma <- pums |>
   dplyr::group_by(PUMA) |>
   dplyr::summarise(
@@ -124,9 +115,8 @@ ht_by_puma <- pums |>
     .groups = "drop"
   )
 
-# =============================
+
 # Join for plotting
-# =============================
 gaus_mapdat <- puma_sf |>
   dplyr::left_join(
     dplyr::tibble(PUMA = sort(unique(pcells$PUMA)),
@@ -161,9 +151,7 @@ sigma2_bios_mapdat <- puma_sf |>
     by = "PUMA"
   )
 
-# =============================
 # Palettes + truncation
-# =============================
 pal_seq <- rev(RColorBrewer::brewer.pal(9, "RdBu"))
 choose_pal <- rev(RColorBrewer::brewer.pal(9, "RdBu"))
 # pal_seq <- viridisLite::inferno(256)
@@ -333,9 +321,7 @@ plot_sigma_bios <- ggplot2::ggplot(pov_var_long) +
   ggplot2::labs(title = "Posterior Variance (Bernoulli) by PUMA") +
   ggplot2::theme_minimal()
 
-# =============================
 # Render
-# =============================
 plot_gaus; plot_bios
 plot_sigma_gaus; plot_sigma_bios
 
