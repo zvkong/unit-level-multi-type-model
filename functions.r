@@ -289,6 +289,7 @@ MTSM_br <- function(X_1, X_2, Z_1, Z_2, S, sig2b = 1000, wgt = NULL, n = NULL,
   if (is.null(n))   n   <- rep(1, N)
 
   w    <- sum(wgt)
+  b_pg <- wgt * n
   Wgt  <- Matrix::Diagonal(x = wgt)
   p_1  <- ncol(X_1)
   p_2  <- ncol(X_2)
@@ -297,7 +298,7 @@ MTSM_br <- function(X_1, X_2, Z_1, Z_2, S, sig2b = 1000, wgt = NULL, n = NULL,
   Ir   <- Matrix::Diagonal(r)
   t_X_1 <- Matrix::t(X_1)
   t_X_2 <- Matrix::t(X_2)
-  k    <- wgt * (Z_2 - 1 / 2)
+  k    <- wgt * (Z_2 - n / 2)
 
   tau_1 <- tau_1_init
   tau_2 <- tau_2_init
@@ -342,7 +343,7 @@ MTSM_br <- function(X_1, X_2, Z_1, Z_2, S, sig2b = 1000, wgt = NULL, n = NULL,
     M  <- SD %*% S
     XD <- t_X_1 %*% d %*% X_1
 
-    omega <- BayesLogit::rpg.gamma(N, wgt, Mu_2)
+    omega <- BayesLogit::rpg.gamma(N, b_pg, Mu_2)
     Omega <- Matrix::Diagonal(x = omega)
     SO    <- Matrix::t(S) %*% Omega
     OM    <- SO %*% S
@@ -377,19 +378,19 @@ MTSM_br <- function(X_1, X_2, Z_1, Z_2, S, sig2b = 1000, wgt = NULL, n = NULL,
                                              X_2 %*% Beta_2 -
                                              tau_2 * S %*% eta))
     lambda <- as.vector(rmvn(1, as.vector(mean.lambda), var.lambda))
-    lambda <- lambda - mean(lambda)
+    # lambda <- lambda - mean(lambda)
 
     var.Beta_2  <- solve(t_X_2 %*% Omega %*% X_2 + Ip2 / sig2b)
     mean.Beta_2 <- var.Beta_2 %*% t_X_2 %*% Omega %*%
       (gamma - tau_2 * S %*% eta - S %*% lambda)
     Beta_2      <- as.vector(MASS::mvrnorm(1, mean.Beta_2, var.Beta_2))
 
-    var_tau_2 <- as.numeric(solve(drop(Matrix::t(eta) %*% OM %*% eta) +
+    var_tau_1 <- as.numeric(solve(drop(Matrix::t(eta) %*% M %*% eta) +
                                     1 / sig2t))
-    mean_tau_2 <- as.numeric(var_tau_2 *
-                               drop(Matrix::t(eta) %*% SO %*%
-                                      (gamma - X_2 %*% Beta_2 - S %*% lambda)))
-    tau_2 <- stats::rnorm(1, mean_tau_2, sqrt(var_tau_2))
+    mean_tau_1 <- as.numeric(var_tau_1 *
+                               drop(Matrix::t(eta) %*% SD %*%
+                                      (Z_1 - X_1 %*% Beta_1)))
+    tau_1 <- stats::rnorm(1, mean_tau_1, sqrt(var_tau_1))
 
     Mu_1 <- as.vector(X_1 %*% Beta_1 + tau_1 * S %*% eta)
     Mu_2 <- as.vector(X_2 %*% Beta_2 + tau_2 * S %*% eta + S %*% lambda)
