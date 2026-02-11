@@ -14,91 +14,91 @@ interval_score <- function(lower, upper, truth, alpha = 0.05) {
   width + penalty_low + penalty_high
 }
 
-## Gaussian poststratification (aggregate-normal version)
-gaus_post <- function(preds,
-                      sig2chain,
-                      true_mean,
-                      region,
-                      popsize) {
+# ## Gaussian poststratification (aggregate-normal version)
+# gaus_post <- function(preds,
+#                       sig2chain,
+#                       true_mean,
+#                       region,
+#                       popsize) {
 
-  region  <- as.character(region)
-  regions <- unique(region)
-  C       <- length(regions)
-  nsim    <- ncol(preds)
+#   region  <- as.character(region)
+#   regions <- unique(region)
+#   C       <- length(regions)
+#   nsim    <- ncol(preds)
 
-  stopifnot(length(sig2chain) == nsim)
+#   stopifnot(length(sig2chain) == nsim)
 
-  idx_by_reg <- split(seq_along(region), region)
-  N_by_reg   <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
+#   idx_by_reg <- split(seq_along(region), region)
+#   N_by_reg   <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
 
-  post <- matrix(NA_real_, nrow = C, ncol = nsim,
-                 dimnames = list(regions, NULL))
+#   post <- matrix(NA_real_, nrow = C, ncol = nsim,
+#                  dimnames = list(regions, NULL))
 
-  for (r in seq_len(nsim)) {
-    theta_j <- preds[, r]
-    sig2_r  <- sig2chain[r]
+#   for (r in seq_len(nsim)) {
+#     theta_j <- preds[, r]
+#     sig2_r  <- sig2chain[r]
 
-    for (c in seq_along(regions)) {
-      ids <- idx_by_reg[[regions[c]]]
-      Nk  <- N_by_reg[c]
+#     for (c in seq_along(regions)) {
+#       ids <- idx_by_reg[[regions[c]]]
+#       Nk  <- N_by_reg[c]
 
-      mu_mean <- sum(popsize[ids] * theta_j[ids]) / Nk
-      mu_sd   <- sqrt(sig2_r / Nk)
+#       mu_mean <- sum(popsize[ids] * theta_j[ids]) / Nk
+#       mu_sd   <- sqrt(sig2_r / Nk)
 
-      post[c, r] <- stats::rnorm(1, mean = mu_mean, sd = mu_sd)
-    }
-  }
+#       post[c, r] <- stats::rnorm(1, mean = mu_mean, sd = mu_sd)
+#     }
+#   }
 
-  ## align true_mean by region names if provided
-  if (!is.null(names(true_mean))) true_mean <- true_mean[regions]
+#   ## align true_mean by region names if provided
+#   if (!is.null(names(true_mean))) true_mean <- true_mean[regions]
 
-  est    <- rowMeans(post)
-  sigma2 <- apply(post, 1, stats::var)
-  lb     <- apply(post, 1, stats::quantile, probs = 0.025)
-  ub     <- apply(post, 1, stats::quantile, probs = 0.975)
-  cr     <- mean(lb <= true_mean & true_mean <= ub)
+#   est    <- rowMeans(post)
+#   sigma2 <- apply(post, 1, stats::var)
+#   lb     <- apply(post, 1, stats::quantile, probs = 0.025)
+#   ub     <- apply(post, 1, stats::quantile, probs = 0.975)
+#   cr     <- mean(lb <= true_mean & true_mean <= ub)
 
-  list(est = est, lb = lb, ub = ub, cr = cr, sigma2 = sigma2, post = post)
-}
-## Binomial poststratification
-bios_post <- function(preds, true_mean, region, popsize) {
-  region  <- as.character(region)
-  regions <- unique(region)
+#   list(est = est, lb = lb, ub = ub, cr = cr, sigma2 = sigma2, post = post)
+# }
+# ## Binomial poststratification
+# bios_post <- function(preds, true_mean, region, popsize) {
+#   region  <- as.character(region)
+#   regions <- unique(region)
 
-  R  <- ncol(preds)
-  C  <- length(regions)
+#   R  <- ncol(preds)
+#   C  <- length(regions)
 
-  df <- matrix(NA_real_, nrow = C, ncol = R,
-               dimnames = list(regions, NULL))
+#   df <- matrix(NA_real_, nrow = C, ncol = R,
+#                dimnames = list(regions, NULL))
 
-  idx_by_reg <- split(seq_along(region), region)
-  N_by_reg   <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
+#   idx_by_reg <- split(seq_along(region), region)
+#   N_by_reg   <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
 
-  N_int <- as.integer(round(popsize))  # ensure integer sizes for rbinom
+#   N_int <- as.integer(round(popsize))  # ensure integer sizes for rbinom
 
-  for (r in seq_len(R)) {
-    p_j <- preds[, r]
+#   for (r in seq_len(R)) {
+#     p_j <- preds[, r]
 
-    # cell-level counts
-    s_j <- stats::rbinom(n = length(N_int), size = N_int, prob = p_j)
+#     # cell-level counts
+#     s_j <- stats::rbinom(n = length(N_int), size = N_int, prob = p_j)
 
-    # aggregate to region-level proportion
-    for (k in seq_along(regions)) {
-      ids <- idx_by_reg[[regions[k]]]
-      df[k, r] <- sum(s_j[ids]) / N_by_reg[k]
-    }
-  }
+#     # aggregate to region-level proportion
+#     for (k in seq_along(regions)) {
+#       ids <- idx_by_reg[[regions[k]]]
+#       df[k, r] <- sum(s_j[ids]) / N_by_reg[k]
+#     }
+#   }
 
-  if (!is.null(names(true_mean))) true_mean <- true_mean[regions]
+#   if (!is.null(names(true_mean))) true_mean <- true_mean[regions]
 
-  est    <- rowMeans(df)
-  sigma2 <- apply(df, 1, stats::var)
-  lb     <- apply(df, 1, stats::quantile, probs = 0.025)
-  ub     <- apply(df, 1, stats::quantile, probs = 0.975)
-  cr     <- mean(lb <= true_mean & true_mean <= ub)
+#   est    <- rowMeans(df)
+#   sigma2 <- apply(df, 1, stats::var)
+#   lb     <- apply(df, 1, stats::quantile, probs = 0.025)
+#   ub     <- apply(df, 1, stats::quantile, probs = 0.975)
+#   cr     <- mean(lb <= true_mean & true_mean <= ub)
 
-  list(est = est, lb = lb, ub = ub, cr = cr, sigma2 = sigma2, post = df)
-}
+#   list(est = est, lb = lb, ub = ub, cr = cr, sigma2 = sigma2, post = df)
+# }
 
 ## UNIS model for Binomial response
 unis_bios <- function(X, Y, S, sig2b = 1000, wgt = NULL, n = NULL,
