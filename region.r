@@ -316,6 +316,7 @@ sigma2_bios_ratio <- puma_sf |>
   )
 
 save.image("region_results.RData")
+load("region_results.RData")
 ## Plot settings
 ratio_pal <- RColorBrewer::brewer.pal(9, "Greens")
 fill_pal <- rev(RColorBrewer::brewer.pal(9, "RdBu"))
@@ -501,36 +502,68 @@ plot_sigma_bios_ratio <- ggplot2::ggplot(sigma2_bios_ratio) +
   ggplot2::theme_minimal()
 
 ## Combine and save
-p_sig_gaus <- plot_sigma_gaus | plot_sigma_gaus_ratio
-p_sig_bios <- plot_sigma_bios | plot_sigma_bios_ratio
+p_gaus_sigma <- plot_sigma_gaus | plot_sigma_gaus_ratio
+p_bios_sigma <- plot_sigma_bios | plot_sigma_bios_ratio 
+
+for (p in c("p_gaus_sigma", "p_bios_sigma")) {
+  ggsave(file.path("figs", paste0(p, ".png")),
+         plot = get(p), width = 5.5, height = 1, dpi = 500)
+}
+
+plot(sigma2_gaus_mapdat$mgaus, sigma2_gaus_mapdat$ugaus, size = 1, pch = 16, 
+    ylab = expression(sigma^2[Univariate]), xlab = expression(sigma^2[Multi-type]),
+    main = "Gaussian Variance Comparison")
+abline(0, 1, col = 'red')
+
+p_sig_gaus <- ggplot(sigma2_gaus_mapdat, aes(x = mgaus, y = ugaus)) +
+  geom_point(size = 1) +
+  geom_abline(slope = 1, intercept = 0, color = 'red') +
+  labs(x = expression(sigma^2[Multi-type]), y = expression(sigma^2[Univariate]),
+       title = "Gaussian Variance Comparison") +
+  theme_minimal()
+
+p_sig_bios <- ggplot(sigma2_bios_mapdat, aes(x = mpov, y = upov)) +
+  geom_point(size = 1) +
+  geom_abline(slope = 1, intercept = 0, color = 'red') +
+  labs(x = expression(sigma^2[Multi-type]), y = expression(sigma^2[Univariate]),
+       title = "Bernoulli Variance Comparison") +
+  theme_minimal()
+
+plot(sigma2_bios_mapdat$mpov, sigma2_bios_mapdat$upov, size = 1, pch = 16, 
+    ylab = expression(sigma^2[Univariate]), xlab = expression(sigma^2[Multi-type]),
+    main = "Bernoulli Variance Comparison")
+abline(0, 1, col = 'red')
+
+p_b_box <- boxplot(sigma2_gaus_mapdat$mgaus/sigma2_gaus_mapdat$ugaus, main = "Gaussian Variance Ratio(Multi-type/Univariate)")
+abline(h = 1, col = 'red')
+
+boxplot(sigma2_bios_mapdat$mpov/sigma2_bios_mapdat$upov, main = "Bernoulli Variance Ratio(Multi-type/Univariate)")
+abline(h = 1, col = 'red')
+
+par(mfrow = c(1, 2))
+
+load("region_bc.rdata")
 
 p_gaussian <- (plot_gaus | p_sig_gaus) + patchwork::plot_layout(widths = c(3, 1))
 p_binomial <- (plot_bios | p_sig_bios) + patchwork::plot_layout(widths = c(3, 1))
 
-dir.create("figs", showWarnings = FALSE)
-
 for (p in c("p_gaussian", "p_binomial")) {
-  ggplot2::ggsave(
-    file.path("figs", paste0(p, ".png")),
-    plot = get(p),
-    width = 10.5,
-    height = 3,
-    dpi = 300
-  )
+  ggsave(file.path("figs", paste0(p, ".png")),
+         plot = get(p), width = 10.5, height = 3, dpi = 300)
 }
 
 ggplot2::ggsave(
-  filename = "p_gaussian_combined.png",
-  plot = p_gaussian,
-  width = 16,
-  height = 5,
-  dpi = 300
+  filename = "p_gaussian_combined.png", 
+  plot = p_gaussian,                    
+  width = 16,                           
+  height = 5,                           
+  dpi = 300                             
 )
 
 ggplot2::ggsave(
-  filename = "p_binomial_combined.png",
-  plot = p_binomial,
-  width = 16,
-  height = 5,
-  dpi = 300
+  filename = "p_binomial_combined.png", 
+  plot = p_binomial,                    
+  width = 16,                           
+  height = 5,                           
+  dpi = 300                             
 )

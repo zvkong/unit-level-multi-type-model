@@ -5,9 +5,9 @@ source("functions.r")
 pums_raw <- read.csv("IL21.csv") |>
   dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMA)))
 
-puma_sf <- tigris::pumas(state = "IL", year = 2020, cb = TRUE, class = "sf") |>
+puma_sf <- tigris::pumas(state = "IL", year = 2019, cb = TRUE, class = "sf") |>
   sf::st_transform(4326) |>
-  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMACE20)))
+  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMACE10)))
 
 nb <- spdep::poly2nb(puma_sf)
 W_mat <- spdep::nb2mat(nb, style = "B", zero.policy = TRUE)
@@ -75,7 +75,7 @@ predX <- model.matrix(~ SEX + BACH - 1, data = pcells)
 predPsi <- basis_mat[as.character(pcells$PUMA), , drop = FALSE]
 
 ## Simulation settings
-n_sim <- 2
+n_sim <- 100
 nsim <- 1000
 nburn <- 1000
 nthin <- 1

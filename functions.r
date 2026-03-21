@@ -1,194 +1,125 @@
-## Draw from MVN with sparse variance matrix
-rmvn <- function(n, mu, Sigma) {
-  p <- nrow(Sigma)
-  L <- Matrix::chol(Sigma)
-  z <- Matrix::Matrix(stats::rnorm(n * p), p, n)
-  t(mu + L %*% z)
+rmvn_prec <- function(b, Q) {
+  Q <- (Q + t(Q)) / 2 
+  L <- chol(Q)
+  y <- forwardsolve(t(L), as.vector(b))
+  z <- stats::rnorm(length(y))
+  as.vector(backsolve(L, y + z))
 }
 
-## Compute interval score
 interval_score <- function(lower, upper, truth, alpha = 0.05) {
-  width <- upper - lower
-  penalty_low <- (2 / alpha) * pmax(0, lower - truth)
+  width        <- upper - lower
+  penalty_low  <- (2 / alpha) * pmax(0, lower - truth)
   penalty_high <- (2 / alpha) * pmax(0, truth - upper)
   width + penalty_low + penalty_high
 }
 
-## Gaussian poststratification
-gaus_post <- function(preds,
-                      sig2chain,
-                      true_mean,
-                      region,
-                      popsize) {
-  region <- as.character(region)
+gaus_post <- function(preds, sig2chain, true_mean, region, popsize) {
+  region  <- as.character(region)
   regions <- unique(region)
-  C <- length(regions)
-  nsim <- ncol(preds)
-
-  stopifnot(length(sig2chain) == nsim)
+  C       <- length(regions)
+  nsim    <- ncol(preds)
 
   idx_by_reg <- split(seq_along(region), region)
-  N_by_reg <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
+  N_by_reg   <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
 
-  post_mean <- matrix(
-    NA_real_,
-    nrow = C,
-    ncol = nsim,
-    dimnames = list(regions, NULL)
-  )
-  post <- matrix(
-    NA_real_,
-    nrow = C,
-    ncol = nsim,
-    dimnames = list(regions, NULL)
+  row_idx <- integer(length(region))
+  for(i in seq_along(regions)) { row_idx[idx_by_reg[[regions[i]]]] <- i }
+  
+  W_post <- Matrix::sparseMatrix(
+    i = row_idx, j = seq_along(region), x = popsize / N_by_reg[row_idx], dims = c(C, length(region))
   )
 
-  for (r in seq_len(nsim)) {
-    theta_j <- preds[, r]
-    sig2_r <- sig2chain[r]
+  post_mean <- as.matrix(W_post %*% preds)
+  rownames(post_mean) <- regions
 
-    for (c in seq_along(regions)) {
-      ids <- idx_by_reg[[regions[c]]]
-      Nk <- N_by_reg[c]
+  mu_sd <- sqrt(outer(1 / N_by_reg, sig2chain))
+  
+  post <- matrix(stats::rnorm(C * nsim, mean = as.vector(post_mean), sd = as.vector(mu_sd)), C, nsim)
+  rownames(post) <- regions
 
-      mu_mean <- sum(popsize[ids] * theta_j[ids]) / Nk
-      post_mean[c, r] <- mu_mean
-      mu_sd <- sqrt(sig2_r / Nk)
-      post[c, r] <- stats::rnorm(1, mean = mu_mean, sd = mu_sd)
-    }
-  }
+  if (!is.null(names(true_mean))) true_mean <- true_mean[regions]
 
-  if (!is.null(names(true_mean))) {
-    true_mean <- true_mean[regions]
-  }
-
-  est <- rowMeans(post)
+  est    <- rowMeans(post)
   sigma2 <- apply(post, 1, stats::var)
-  lb <- apply(post, 1, stats::quantile, probs = 0.025)
-  ub <- apply(post, 1, stats::quantile, probs = 0.975)
-  cr <- mean(lb <= true_mean & true_mean <= ub)
+  lb     <- apply(post, 1, stats::quantile, probs = 0.025)
+  ub     <- apply(post, 1, stats::quantile, probs = 0.975)
+  cr     <- mean(lb <= true_mean & true_mean <= ub)
 
-  est_param <- rowMeans(post_mean)
-  var_param <- apply(post_mean, 1, stats::var)
-  lb_param <- apply(post_mean, 1, stats::quantile, probs = 0.025)
-  ub_param <- apply(post_mean, 1, stats::quantile, probs = 0.975)
-  cr_param <- mean(lb_param <= true_mean & true_mean <= ub_param)
+  est_param    <- rowMeans(post_mean)
+  var_param    <- apply(post_mean, 1, stats::var)
+  lb_param     <- apply(post_mean, 1, stats::quantile, probs = 0.025)
+  ub_param     <- apply(post_mean, 1, stats::quantile, probs = 0.975)
+  cr_param     <- mean(lb_param <= true_mean & true_mean <= ub_param)
 
-  list(
-    est = est,
-    lb = lb,
-    ub = ub,
-    cr = cr,
-    sigma2 = sigma2,
-    post = post,
-    est_nonoise = est_param,
-    lb_nonoise = lb_param,
-    ub_nonoise = ub_param,
-    cr_nonoise = cr_param,
-    sigma2_nonoise = var_param,
-    post_nonoise = post_mean
-  )
+  list(est = est, lb = lb, ub = ub, cr = cr, sigma2 = sigma2, post = post,
+       est_nonoise = est_param, lb_nonoise = lb_param, ub_nonoise = ub_param,
+       cr_nonoise = cr_param, sigma2_nonoise = var_param, post_nonoise = post_mean)
 }
 
-## Binomial poststratification
 bios_post <- function(preds, true_mean, region, popsize) {
-  region <- as.character(region)
+  region  <- as.character(region)
   regions <- unique(region)
-
-  R <- ncol(preds)
-  C <- length(regions)
-
-  post_mean <- matrix(
-    NA_real_,
-    nrow = C,
-    ncol = R,
-    dimnames = list(regions, NULL)
-  )
-  post <- matrix(
-    NA_real_,
-    nrow = C,
-    ncol = R,
-    dimnames = list(regions, NULL)
-  )
+  C       <- length(regions)
+  R_sim   <- ncol(preds)
 
   idx_by_reg <- split(seq_along(region), region)
-  N_by_reg <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
+  N_by_reg   <- sapply(idx_by_reg[regions], function(id) sum(popsize[id]))
+
+  row_idx <- integer(length(region))
+  for(i in seq_along(regions)) { row_idx[idx_by_reg[[regions[i]]]] <- i }
+  
+  W_post <- Matrix::sparseMatrix(
+    i = row_idx, j = seq_along(region), x = popsize / N_by_reg[row_idx], dims = c(C, length(region))
+  )
+  
+  post_mean <- as.matrix(W_post %*% preds)
+  rownames(post_mean) <- regions
+
   N_int <- as.integer(round(popsize))
+  s_matrix <- matrix(
+    stats::rbinom(n = length(N_int) * R_sim, size = rep(N_int, times = R_sim), prob = as.vector(preds)), 
+    nrow = length(N_int), ncol = R_sim
+  )
 
-  for (r in seq_len(R)) {
-    p_j <- preds[, r]
+  W_sum <- Matrix::sparseMatrix(
+    i = row_idx, j = seq_along(region), x = 1 / N_by_reg[row_idx], dims = c(C, length(region))
+  )
+  
+  post <- as.matrix(W_sum %*% s_matrix)
+  rownames(post) <- regions
 
-    for (c in seq_along(regions)) {
-      ids <- idx_by_reg[[regions[c]]]
-      post_mean[c, r] <- sum(popsize[ids] * p_j[ids]) / N_by_reg[c]
-    }
+  if (!is.null(names(true_mean))) true_mean <- true_mean[regions]
 
-    s_j <- stats::rbinom(n = length(N_int), size = N_int, prob = p_j)
-
-    for (k in seq_along(regions)) {
-      ids <- idx_by_reg[[regions[k]]]
-      post[k, r] <- sum(s_j[ids]) / N_by_reg[k]
-    }
-  }
-
-  if (!is.null(names(true_mean))) {
-    true_mean <- true_mean[regions]
-  }
-
-  est <- rowMeans(post)
+  est    <- rowMeans(post)
   sigma2 <- apply(post, 1, stats::var)
-  lb <- apply(post, 1, stats::quantile, probs = 0.025)
-  ub <- apply(post, 1, stats::quantile, probs = 0.975)
-  cr <- mean(lb <= true_mean & true_mean <= ub)
-
+  lb     <- apply(post, 1, stats::quantile, probs = 0.025)
+  ub     <- apply(post, 1, stats::quantile, probs = 0.975)
+  cr     <- mean(lb <= true_mean & true_mean <= ub)
+  
   est_param <- rowMeans(post_mean)
   var_param <- apply(post_mean, 1, stats::var)
-  lb_param <- apply(post_mean, 1, stats::quantile, probs = 0.025)
-  ub_param <- apply(post_mean, 1, stats::quantile, probs = 0.975)
-  cr_param <- mean(lb_param <= true_mean & true_mean <= ub_param)
+  lb_param  <- apply(post_mean, 1, stats::quantile, probs = 0.025)
+  ub_param  <- apply(post_mean, 1, stats::quantile, probs = 0.975)
+  cr_param  <- mean(lb_param <= true_mean & true_mean <= ub_param)
 
-  list(
-    est = est,
-    lb = lb,
-    ub = ub,
-    cr = cr,
-    sigma2 = sigma2,
-    post = post,
-    est_nonoise = est_param,
-    lb_nonoise = lb_param,
-    ub_nonoise = ub_param,
-    cr_nonoise = cr_param,
-    sigma2_nonoise = var_param,
-    post_nonoise = post_mean
-  )
+  list(est = est, lb = lb, ub = ub, cr = cr, sigma2 = sigma2, post = post,
+       est_nonoise = est_param, lb_nonoise = lb_param, ub_nonoise = ub_param,
+       cr_nonoise = cr_param, sigma2_nonoise = var_param, post_nonoise = post_mean)
 }
 
-## Fit univariate binomial spatial model
 unis_bios <- function(X, Y, S, sig2b = 1000, wgt = NULL, n = NULL,
-                      predX, predS,
-                      nburn = 1000, nsim = 5000, nthin = 1,
+                      predX, predS, nburn = 1000, nsim = 5000, nthin = 1,
                       a = 0.1, b = 0.1) {
-  N <- length(Y)
-  p <- ncol(X)
-  r <- ncol(S)
-  npred <- nrow(predX)
-
-  if (is.null(wgt)) {
-    wgt <- rep(1, N)
-  }
-  if (is.null(n)) {
-    n <- rep(1, N)
-  }
+  N <- length(Y); p <- ncol(X); r <- ncol(S); npred <- nrow(predX)
+  if (is.null(wgt)) wgt <- rep(1, N)
+  if (is.null(n))   n   <- rep(1, N)
 
   k <- wgt * (Y - n / 2)
-  Ip <- Matrix::Diagonal(p)
-  Ir <- Matrix::Diagonal(r)
+  tX_k <- crossprod(X, k)
+  tS_k <- crossprod(S, k)
+  Ip <- diag(p); Ir <- diag(r)
 
-  Mu <- rep(1, N)
-  Beta <- rep(1, p)
-  Sigma2_u <- 1
-  U <- rep(1, r)
-
+  Mu <- rep(1, N); Beta <- rep(1, p); Sigma2_u <- 1; U <- rep(1, r)
   n_keep <- nsim / nthin
   Beta.chain <- array(0, dim = c(p, n_keep))
   Sigma2_u.chain <- numeric(n_keep)
@@ -197,313 +128,186 @@ unis_bios <- function(X, Y, S, sig2b = 1000, wgt = NULL, n = NULL,
   preds.chain <- array(0, dim = c(npred, n_keep))
   logit_bios.chain <- array(0, dim = c(npred, n_keep))
 
-  message("Starting ", n_keep, " iterations.")
   pb <- txtProgressBar(min = 0, max = nsim + nburn, style = 3)
 
   for (index in seq_len(nsim + nburn)) {
-    if (index %% 10000 == 0) {
-      cat(index, "\n")
-    }
-
     omega <- BayesLogit::rpg.gamma(N, wgt, Mu)
-    Omega <- Matrix::Diagonal(x = omega)
-    SO <- Matrix::t(S) %*% Omega
-    OM <- SO %*% S
-    gamma <- k / omega
+    
+    X_w_X <- crossprod(X, omega * X)
+    S_w_S <- crossprod(S, omega * S)
+    S_w_X <- crossprod(S, omega * X)
 
-    var.Beta <- solve(Matrix::t(X) %*% Omega %*% X + Ip / sig2b)
-    mean.Beta <- var.Beta %*% (Matrix::t(X) %*% Omega %*% (gamma - S %*% U))
-    Beta <- as.vector(MASS::mvrnorm(1, mu = mean.Beta, Sigma = var.Beta))
+    Q_Beta  <- X_w_X + Ip / sig2b
+    b_Beta  <- tX_k - t(S_w_X) %*% U
+    Beta    <- rmvn_prec(b_Beta, Q_Beta)
 
-    a_prime <- a + r / 2
-    b_prime <- b + 0.5 * drop(Matrix::t(U) %*% U)
-    Sigma2_u <- 1 / stats::rgamma(1, shape = a_prime, rate = b_prime)
+    b_prime   <- b + 0.5 * sum(U^2)
+    Sigma2_u  <- 1 / stats::rgamma(1, shape = a + r / 2, rate = b_prime)
 
-    var.U <- solve(OM + Ir / Sigma2_u)
-    mean.U <- var.U %*% SO %*% (gamma - X %*% Beta)
-    U <- as.vector(rmvn(1, as.vector(mean.U), var.U))
+    Q_U  <- S_w_S + Ir / Sigma2_u
+    b_U  <- tS_k - S_w_X %*% Beta
+    U    <- rmvn_prec(b_U, Q_U)
 
     Mu <- as.vector(X %*% Beta + S %*% U)
-
     logit_bios <- predX %*% Beta + predS %*% U
-    preds <- stats::plogis(logit_bios)
+    preds      <- stats::plogis(logit_bios)
 
     utils::setTxtProgressBar(pb, index)
-
     if (index > nburn && (index - nburn) %% nthin == 0) {
       pos <- (index - nburn) / nthin
-      Beta.chain[, pos] <- Beta
-      U.chain[, pos] <- U
-      Sigma2_u.chain[pos] <- Sigma2_u
-      Mu.chain[, pos] <- Mu
-      preds.chain[, pos] <- preds
-      logit_bios.chain[, pos] <- logit_bios
+      Beta.chain[, pos] <- Beta; U.chain[, pos] <- U; Sigma2_u.chain[pos] <- Sigma2_u
+      Mu.chain[, pos] <- Mu; preds.chain[, pos] <- preds; logit_bios.chain[, pos] <- logit_bios
     }
   }
-
-  list(
-    Beta.chain = Beta.chain,
-    U.chain = U.chain,
-    Sigma2_u.chain = Sigma2_u.chain,
-    Mu.chain = Mu.chain,
-    Preds = preds.chain,
-    logit_bios.chain = logit_bios.chain
-  )
+  list(Beta.chain=Beta.chain, U.chain=U.chain, Sigma2_u.chain=Sigma2_u.chain,
+       Mu.chain=Mu.chain, Preds=preds.chain, logit_bios.chain=logit_bios.chain)
 }
 
-## Fit univariate Gaussian spatial model
 unis_gaus <- function(X, Y, S, sig2b = 1000, wgt = NULL, n = NULL,
-                      predX, predS,
-                      nburn = 1000, nsim = 5000, nthin = 1,
-                      a = 0.1, b = 0.1,
-                      a_eps = 0.1, b_eps = 0.1) {
-  N <- length(Y)
-  p <- ncol(X)
-  r <- ncol(S)
-  npred <- nrow(predX)
+                      predX, predS, nburn = 1000, nsim = 5000, nthin = 1,
+                      a = 0.1, b = 0.1, a_eps = 0.1, b_eps = 0.1) {
+  N <- length(Y); p <- ncol(X); r <- ncol(S); npred <- nrow(predX)
+  if (is.null(wgt)) wgt <- rep(1, N)
 
-  if (is.null(wgt)) {
-    wgt <- rep(1, N)
-  }
-  if (is.null(n)) {
-    n <- rep(1, N)
-  }
+  X_w_X <- crossprod(X, wgt * X)
+  S_w_S <- crossprod(S, wgt * S)
+  X_w_S <- crossprod(X, wgt * S)
+  S_w_X <- t(X_w_S)
+  tX_wY <- crossprod(X, wgt * Y)
+  tS_wY <- crossprod(S, wgt * Y)
+  w_sum <- sum(wgt)
+  Ip <- diag(p); Ir <- diag(r)
 
-  w <- sum(wgt)
-  Wgt <- Matrix::Diagonal(x = wgt)
-  Ip <- Matrix::Diagonal(p)
-  Ir <- Matrix::Diagonal(r)
-
-  Beta <- rep(1, p)
-  Sigma2_u <- 1
-  U <- rep(0, r)
-  Mu <- rep(0, N)
-  sig2 <- 1
-
+  Beta <- rep(1, p); Sigma2_u <- 1; U <- rep(0, r); Mu <- rep(0, N); sig2 <- 1
   n_keep <- nsim / nthin
-  Beta.chain <- array(0, dim = c(p, n_keep))
-  Sigma2_u.chain <- numeric(n_keep)
-  U.chain <- array(0, dim = c(r, n_keep))
-  Mu.chain <- array(0, dim = c(N, n_keep))
-  sig2.chain <- numeric(n_keep)
-  preds.chain <- array(0, dim = c(npred, n_keep))
+  Beta.chain <- array(0, dim = c(p, n_keep)); U.chain <- array(0, dim = c(r, n_keep))
+  Sigma2_u.chain <- numeric(n_keep); sig2.chain <- numeric(n_keep)
+  Mu.chain <- array(0, dim = c(N, n_keep)); preds.chain <- array(0, dim = c(npred, n_keep))
 
-  message("Starting ", n_keep, " iterations.")
   pb <- txtProgressBar(min = 0, max = nsim + nburn, style = 3)
 
-  tX <- Matrix::t(X)
-
   for (index in seq_len(nsim + nburn)) {
-    if (index %% 10000 == 0) {
-      cat(index, "\n")
-    }
+    sig2 <- 1 / stats::rgamma(1, shape = a_eps + w_sum / 2, rate = b_eps + 0.5 * sum(wgt * (Y - Mu)^2))
 
-    a_star <- a_eps + w / 2
-    b_star <- b_eps + 0.5 * drop(Matrix::t(Y - Mu) %*% Wgt %*% (Y - Mu))
-    sig2 <- 1 / stats::rgamma(1, shape = a_star, rate = b_star)
+    Q_Beta  <- X_w_X / sig2 + Ip / sig2b
+    b_Beta  <- (tX_wY - X_w_S %*% U) / sig2
+    Beta    <- rmvn_prec(b_Beta, Q_Beta)
 
-    d <- Wgt / sig2
-    SD <- Matrix::t(S) %*% d
-    M <- SD %*% S
-    XD <- tX %*% d %*% X
+    b_prime  <- b + 0.5 * sum(U^2)
+    Sigma2_u <- 1 / stats::rgamma(1, shape = a + r / 2, rate = b_prime)
 
-    var.Beta <- solve(XD + Ip / sig2b)
-    mean.Beta <- var.Beta %*% tX %*% d %*% (Y - S %*% U)
-    Beta <- as.vector(MASS::mvrnorm(1, mu = mean.Beta, Sigma = var.Beta))
+    Q_U  <- S_w_S / sig2 + Ir / Sigma2_u
+    b_U  <- (tS_wY - S_w_X %*% Beta) / sig2
+    U    <- rmvn_prec(b_U, Q_U)
 
-    a_prime <- a + r / 2
-    b_prime <- b + 0.5 * drop(Matrix::t(U) %*% U)
-    Sigma2_u <- 1 / stats::rgamma(1, shape = a_prime, rate = b_prime)
-
-    var.U <- solve(M + Ir / Sigma2_u)
-    mean.U <- var.U %*% (SD %*% (Y - X %*% Beta))
-    U <- as.vector(rmvn(1, as.vector(mean.U), var.U))
-
-    Mu <- as.vector(X %*% Beta + S %*% U)
+    Mu    <- as.vector(X %*% Beta + S %*% U)
     preds <- predX %*% Beta + predS %*% U
 
     utils::setTxtProgressBar(pb, index)
-
     if (index > nburn && (index - nburn) %% nthin == 0) {
       pos <- (index - nburn) / nthin
-      Beta.chain[, pos] <- Beta
-      U.chain[, pos] <- U
-      Sigma2_u.chain[pos] <- Sigma2_u
-      Mu.chain[, pos] <- Mu
-      sig2.chain[pos] <- sig2
-      preds.chain[, pos] <- preds
+      Beta.chain[, pos] <- Beta; U.chain[, pos] <- U; Sigma2_u.chain[pos] <- Sigma2_u
+      Mu.chain[, pos] <- Mu; sig2.chain[pos] <- sig2; preds.chain[, pos] <- preds
     }
   }
-
-  list(
-    Beta.chain = Beta.chain,
-    U.chain = U.chain,
-    Sigma2_u.chain = Sigma2_u.chain,
-    Mu.chain = Mu.chain,
-    sig2.chain = sig2.chain,
-    Preds = preds.chain
-  )
+  list(Beta.chain=Beta.chain, U.chain=U.chain, Sigma2_u.chain=Sigma2_u.chain,
+       Mu.chain=Mu.chain, sig2.chain=sig2.chain, Preds=preds.chain)
 }
 
-## Fit multitype model with binomial-specific random effect
-MTSM_br <- function(X_1, X_2, Z_1, Z_2, S, sig2b = 1000, wgt = NULL, n = NULL,
-                    predX, predS, n_preds,
-                    nburn = 1000, nsim = 5000, nthin = 1,
+MTSM_br <- function(X_1, X_2, Z_1, Z_2, S, sig2b = 1000, wgt = NULL, n_binom = NULL,
+                    predX, predS, n_preds, nburn = 1000, nsim = 5000, nthin = 1,
                     sig2t = 10, sig2e = 10, tau_1_init = 1,
-                    a_eps = 0.1, b_eps = 0.1,
-                    aeta = 0.1, beta = 0.1,
+                    a_eps = 0.1, b_eps = 0.1, aeta = 0.1, beta = 0.1,
                     alambda = 0.1, blambda = 0.1) {
-  N <- nrow(X_1)
-  r <- ncol(S)
-  npred <- nrow(predX)
 
-  if (is.null(wgt)) {
-    wgt <- rep(1, N)
-  }
-  if (is.null(n)) {
-    n <- rep(1, N)
-  }
+  N <- nrow(X_1); r <- ncol(S); npred <- nrow(predX)
+  if (is.null(wgt)) wgt <- rep(1, N)
+  if (is.null(n_binom)) n_binom <- rep(1, N)
 
-  w <- sum(wgt)
-  Wgt <- Matrix::Diagonal(x = wgt)
-  p_1 <- ncol(X_1)
-  p_2 <- ncol(X_2)
-  Ip1 <- Matrix::Diagonal(p_1)
-  Ip2 <- Matrix::Diagonal(p_2)
-  Ir <- Matrix::Diagonal(r)
-  t_X_1 <- Matrix::t(X_1)
-  t_X_2 <- Matrix::t(X_2)
-  k <- wgt * (Z_2 - 1 / 2)
+  w_sum   <- sum(wgt)
+  X1_w_X1 <- crossprod(X_1, wgt * X_1)
+  S_w_S   <- crossprod(S, wgt * S)
+  X1_w_S  <- crossprod(X_1, wgt * S)
+  S_w_X1  <- t(X1_w_S)
+  tX1_wZ1 <- crossprod(X_1, wgt * Z_1)
+  tS_wZ1  <- crossprod(S, wgt * Z_1)
+  
+  k       <- wgt * (Z_2 - n_binom / 2)
+  tX2_k   <- crossprod(X_2, k)
+  tS_k    <- crossprod(S, k)
+
+  p_1 <- ncol(X_1); p_2 <- ncol(X_2)
+  Ip1 <- diag(p_1); Ip2 <- diag(p_2); Ir <- diag(r)
 
   tau_1 <- tau_1_init
-  Beta_1 <- rep(1, p_1)
-  Beta_2 <- rep(1, p_2)
-  lambda <- rep(0, r)
-  eta <- rep(1, r)
-  Mu_1 <- rep(1, N)
-  Mu_2 <- rep(1, N)
-  sig2 <- 1
-  sig2e <- sig2e
-  sig2l <- 1
-
+  Beta_1 <- rep(1, p_1); Beta_2 <- rep(1, p_2)
+  lambda <- rep(0, r); eta <- rep(1, r)
+  Mu_1 <- rep(1, N); Mu_2 <- rep(1, N); sig2 <- 1
+  
   n_keep <- nsim / nthin
-  tau_1.chain <- numeric(n_keep)
-  Beta_1.chain <- array(0, dim = c(p_1, n_keep))
-  Beta_2.chain <- array(0, dim = c(p_2, n_keep))
-  Sigma2_lambda.chain <- numeric(n_keep)
-  Sigma2_eta.chain <- numeric(n_keep)
-  sig2.chain <- numeric(n_keep)
-  lambda.chain <- array(0, dim = c(r, n_keep))
-  eta.chain <- array(0, dim = c(r, n_keep))
-  Mu_1.chain <- array(0, dim = c(N, n_keep))
-  Mu_2.chain <- array(0, dim = c(N, n_keep))
-  preds_gaus.chain <- array(0, dim = c(npred, n_keep))
-  preds_bios.chain <- array(0, dim = c(npred, n_keep))
-  logit_bios.chain <- array(0, dim = c(npred, n_keep))
+  tau_1.chain <- Sigma2_lambda.chain <- Sigma2_eta.chain <- sig2.chain <- numeric(n_keep)
+  Beta_1.chain <- array(0, dim = c(p_1, n_keep)); Beta_2.chain <- array(0, dim = c(p_2, n_keep))
+  lambda.chain <- array(0, dim = c(r, n_keep)); eta.chain <- array(0, dim = c(r, n_keep))
+  Mu_1.chain <- Mu_2.chain <- array(0, dim = c(N, n_keep))
+  preds_gaus.chain <- preds_bios.chain <- logit_bios.chain <- array(0, dim = c(npred, n_keep))
 
-  message("Starting ", n_keep, " iterations.")
   pb <- txtProgressBar(min = 0, max = nsim + nburn, style = 3)
 
   for (index in seq_len(nsim + nburn)) {
-    if (index %% 10000 == 0) {
-      cat(index, "\n")
-    }
-
-    a_star <- a_eps + w / 2
-    b_star <- b_eps + 0.5 * drop(Matrix::t(Z_1 - Mu_1) %*% Wgt %*% (Z_1 - Mu_1))
-    sig2 <- 1 / stats::rgamma(1, shape = a_star, rate = b_star)
-
-    d <- Wgt / sig2
-    SD <- Matrix::t(S) %*% d
-    M <- SD %*% S
-    XD <- t_X_1 %*% d %*% X_1
+    sig2 <- 1 / stats::rgamma(1, shape = a_eps + w_sum / 2, rate = b_eps + 0.5 * sum(wgt * (Z_1 - Mu_1)^2))
 
     omega <- BayesLogit::rpg.gamma(N, wgt, Mu_2)
-    Omega <- Matrix::Diagonal(x = omega)
-    SO <- Matrix::t(S) %*% Omega
-    OM <- SO %*% S
-    gamma <- k / omega
+    OM <- crossprod(S, omega * S)
+    X2_w_X2 <- crossprod(X_2, omega * X_2)
+    S_w_X2 <- crossprod(S, omega * X_2)
 
-    a_eta <- aeta + r / 2
-    b_eta <- beta + 0.5 * drop(Matrix::t(eta) %*% eta)
-    sig2e <- 1 / stats::rgamma(1, shape = a_eta, rate = b_eta)
-
-    var.eta <- solve(tau_1 * M * tau_1 + Ir / sig2e + OM, sparse = TRUE)
-
-    mean.eta <- var.eta %*% (
-      tau_1 * SD %*% (Z_1 - X_1 %*% Beta_1) +
-        SO %*% (gamma - X_2 %*% Beta_2 - S %*% lambda)
-    )
-
-    eta <- as.vector(rmvn(1, as.vector(mean.eta), var.eta))
+    sig2e <- 1 / stats::rgamma(1, shape = aeta + r / 2, rate = beta + 0.5 * sum(eta^2))
+    
+    Q_eta <- tau_1^2 * (S_w_S / sig2) + Ir / sig2e + OM
+    b_eta <- tau_1 * (tS_wZ1 - S_w_X1 %*% Beta_1) / sig2 + (tS_k - S_w_X2 %*% Beta_2 - OM %*% lambda)
+    eta <- rmvn_prec(b_eta, Q_eta)
     eta <- eta - mean(eta)
 
-    var.Beta_1 <- solve(XD + Ip1 / sig2b)
-    mean.Beta_1 <- var.Beta_1 %*% t_X_1 %*% d %*% (Z_1 - tau_1 * S %*% eta)
-    Beta_1 <- as.vector(MASS::mvrnorm(1, mean.Beta_1, var.Beta_1))
+    Q_Beta_1  <- (X1_w_X1 / sig2) + Ip1 / sig2b
+    b_Beta_1  <- (tX1_wZ1 - tau_1 * X1_w_S %*% eta) / sig2
+    Beta_1    <- rmvn_prec(b_Beta_1, Q_Beta_1)
 
-    a_l <- alambda + r / 2
-    b_l <- blambda + 0.5 * drop(Matrix::t(lambda) %*% lambda)
-    sig2l <- 1 / stats::rgamma(1, shape = a_l, rate = b_l)
-
-    var.lambda <- solve(OM + Ir / sig2l, sparse = TRUE)
-    mean.lambda <- var.lambda %*% (SO %*% (gamma - X_2 %*% Beta_2 - S %*% eta))
-    lambda <- as.vector(rmvn(1, as.vector(mean.lambda), var.lambda))
+    sig2l <- 1 / stats::rgamma(1, shape = alambda + r / 2, rate = blambda + 0.5 * sum(lambda^2))
+    Q_lambda <- OM + Ir / sig2l
+    b_lambda <- tS_k - S_w_X2 %*% Beta_2 - OM %*% eta
+    lambda <- rmvn_prec(b_lambda, Q_lambda)
     lambda <- lambda - mean(lambda)
 
-    var.Beta_2 <- solve(t_X_2 %*% Omega %*% X_2 + Ip2 / sig2b)
-    mean.Beta_2 <- var.Beta_2 %*% t_X_2 %*% Omega %*%
-      (gamma - S %*% eta - S %*% lambda)
-    Beta_2 <- as.vector(MASS::mvrnorm(1, mean.Beta_2, var.Beta_2))
+    Q_Beta_2  <- X2_w_X2 + Ip2 / sig2b
+    b_Beta_2  <- tX2_k - t(S_w_X2) %*% eta - t(S_w_X2) %*% lambda
+    Beta_2    <- rmvn_prec(b_Beta_2, Q_Beta_2)
 
-    var_tau_1 <- as.numeric(
-      solve(drop(Matrix::t(eta) %*% M %*% eta) + 1 / sig2t)
-    )
-    mean_tau_1 <- as.numeric(
-      var_tau_1 * drop(Matrix::t(eta) %*% SD %*% (Z_1 - X_1 %*% Beta_1))
-    )
+    M_sig2 <- S_w_S / sig2
+    var_tau_1 <- 1 / (sum(eta * (M_sig2 %*% eta)) + 1 / sig2t) 
+    mean_tau_1 <- var_tau_1 * sum(eta * ((tS_wZ1 - S_w_X1 %*% Beta_1) / sig2))
     tau_1 <- stats::rnorm(1, mean_tau_1, sqrt(var_tau_1))
 
     Mu_1 <- as.vector(X_1 %*% Beta_1 + tau_1 * S %*% eta)
     Mu_2 <- as.vector(X_2 %*% Beta_2 + S %*% eta + S %*% lambda)
-
+    
     preds_gaus <- predX %*% Beta_1 + tau_1 * predS %*% eta
     logit_bios <- predX %*% Beta_2 + predS %*% eta + predS %*% lambda
     preds_bios <- stats::plogis(logit_bios)
 
     utils::setTxtProgressBar(pb, index)
-
     if (index > nburn && (index - nburn) %% nthin == 0) {
       pos <- (index - nburn) / nthin
-      tau_1.chain[pos] <- tau_1
-      Beta_1.chain[, pos] <- Beta_1
-      Beta_2.chain[, pos] <- Beta_2
-      lambda.chain[, pos] <- lambda
-      eta.chain[, pos] <- eta
-      sig2.chain[pos] <- sig2
-      Sigma2_lambda.chain[pos] <- sig2l
-      Sigma2_eta.chain[pos] <- sig2e
-      Mu_1.chain[, pos] <- Mu_1
-      Mu_2.chain[, pos] <- Mu_2
-      preds_gaus.chain[, pos] <- preds_gaus
-      preds_bios.chain[, pos] <- preds_bios
-      logit_bios.chain[, pos] <- logit_bios
+      tau_1.chain[pos] <- tau_1; sig2.chain[pos] <- sig2
+      Sigma2_lambda.chain[pos] <- sig2l; Sigma2_eta.chain[pos] <- sig2e
+      Beta_1.chain[, pos] <- Beta_1; Beta_2.chain[, pos] <- Beta_2
+      lambda.chain[, pos] <- lambda; eta.chain[, pos] <- eta
+      Mu_1.chain[, pos] <- Mu_1; Mu_2.chain[, pos] <- Mu_2
+      preds_gaus.chain[, pos] <- preds_gaus; preds_bios.chain[, pos] <- preds_bios; logit_bios.chain[, pos] <- logit_bios
     }
   }
 
-  list(
-    Beta_1.chain = Beta_1.chain,
-    Beta_2.chain = Beta_2.chain,
-    lambda.chain = lambda.chain,
-    eta.chain = eta.chain,
-    Sigma2_lambda.chain = Sigma2_lambda.chain,
-    Sigma2_eta.chain = Sigma2_eta.chain,
-    sig2.chain = sig2.chain,
-    Mu_1.chain = Mu_1.chain,
-    Mu_2.chain = Mu_2.chain,
-    preds_gaus.chain = preds_gaus.chain,
-    preds_bios.chain = preds_bios.chain,
-    logit_bios.chain = logit_bios.chain,
-    tau_1.chain = tau_1.chain
-  )
+  list(Beta_1.chain=Beta_1.chain, Beta_2.chain=Beta_2.chain, lambda.chain=lambda.chain, eta.chain=eta.chain,
+       Sigma2_lambda.chain=Sigma2_lambda.chain, Sigma2_eta.chain=Sigma2_eta.chain, sig2.chain=sig2.chain,
+       Mu_1.chain=Mu_1.chain, Mu_2.chain=Mu_2.chain, preds_gaus.chain=preds_gaus.chain, preds_bios.chain=preds_bios.chain,
+       logit_bios.chain=logit_bios.chain, tau_1.chain=tau_1.chain)
 }

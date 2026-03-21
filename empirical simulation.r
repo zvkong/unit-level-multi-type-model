@@ -2,17 +2,34 @@ source("packages.r")
 source("functions.r")
 
 ## Load data
-pums21 <- readr::read_csv("IL21.csv")
+# pums_vars <- c(
+#   "PINCP",
+#   "PWGTP",
+#   "PUMA",
+#   "AGEP",
+#   "SEX",
+#   "RAC1P",
+#   "SCHL",
+#   "POVPIP"
+# )
 
+# pums21 <- tidycensus::get_pums(
+#   variables = pums_vars,
+#   state = "IL",
+#   year = 2021,
+#   survey = "acs1",
+#   recode = TRUE
+# )
+pums21 <- read.csv("IL21.csv")
 ## Prepare analysis data
 pums1 <- pums21 |>
-  dplyr::select(PUMA, PWGTP, SEX, RACWHT, POVPIP, PINCP, SCHL) |>
+  dplyr::select(PUMA, PWGTP, SEX, POVPIP, PINCP, SCHL) |>
   tidyr::drop_na() |>
   dplyr::mutate(
     PWGTP = as.numeric(PWGTP),
     POVPIP = as.numeric(POVPIP),
     SEX = factor(SEX),
-    RACE = factor(RACWHT),
+    # RACE = factor(RACWHT),
     LOGINCO = log(as.numeric(PINCP)),
     INCOME = as.numeric(PINCP),
     degree = as.integer(SCHL),
@@ -30,12 +47,13 @@ pums1 <- pums21 |>
 pums1 <- pums1[pums1$LOGINCO != -Inf, ]
 
 pums <- pums1 |>
-  dplyr::select(PUMA, PWGTP, SEX, RACE, POV, LOGINCO, INCOME, BACH) |>
+  dplyr::select(PUMA, PWGTP, SEX, POV, LOGINCO, INCOME, BACH) |>
   tidyr::drop_na() |>
   dplyr::mutate(
     POV = as.numeric(POV),
     EDU = as.numeric(BACH) - 1
-  )
+  ) |>
+  arrange(PUMA, SEX, BACH)
 
 pums$INCO <- pums$LOGINCO
 pums$INCO <- (pums$INCO - min(pums$INCO)) /
@@ -150,27 +168,27 @@ for (k in seq_len(n_sim)) {
   )
 
   mult_fit <- MTSM_br(
-    X_1 = modX,
-    X_2 = modX,
-    Z_1 = modY,
-    Z_2 = modZ,
-    S = modPsi,
+    X_1   = modX,
+    X_2   = modX,
+    Z_1   = modY,
+    Z_2   = modZ,
+    S     = modPsi,
     sig2b = 1000,
-    wgt = modwgt,
-    n = NULL,
+    wgt   = modwgt,
+    n     = NULL,
     predX = predX,
     predS = predPsi,
     n_preds = NULL,
     nburn = nburn,
-    nsim = nsim,
+    nsim  = nsim,
     nthin = nthin,
     sig2t = 5,
     sig2e = 10,
-    tau_1_init = 1,
+    tau_1_init = -1,
     a_eps = 0.1,
     b_eps = 0.1,
-    aeta = 0.1,
-    beta = 0.1,
+    aeta  = 0.1,
+    beta  = 0.1,
     alambda = 2,
     blambda = 1
   )
@@ -431,3 +449,4 @@ final_plot <- p_mse / (p_is + p_cr) +
 print(final_plot)
 
 ggsave("Combined_Metrics_Plot.png", final_plot, width = 12, height = 6, dpi = 300)
+

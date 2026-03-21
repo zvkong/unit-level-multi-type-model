@@ -7,7 +7,7 @@ req_pkgs <- c(
   # Spatial data handling
   "sf", "spdep", "spatialreg",
   # Visualization
-  "ggplot2", "RColorBrewer", "scales",
+  "ggplot2", "RColorBrewer", "scales", "patchwork",
   # Data manipulation
   "tidyverse", "dplyr", "tidycensus", "foreign", "tidyr", "tigris",
   # Simulation / survey
@@ -51,6 +51,7 @@ suppressPackageStartupMessages({
   library(HDInterval)
   library(readr)
   library(tigris)
+  library(patchwork)
 })
 
 message("All required packages are loaded.")
