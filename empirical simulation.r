@@ -66,7 +66,8 @@ truth <- pums |>
     INCO = mean(INCO),
     POV = mean(POV),
     .groups = "drop"
-  )
+  ) |>
+  arrange(PUMA)
 
 pcells <- pums |>
   dplyr::group_by(PUMA, SEX, BACH) |>
@@ -168,29 +169,21 @@ for (k in seq_len(n_sim)) {
   )
 
   mult_fit <- MTSM_br(
-    X_1   = modX,
-    X_2   = modX,
-    Z_1   = modY,
-    Z_2   = modZ,
-    S     = modPsi,
-    sig2b = 1000,
-    wgt   = modwgt,
-    n     = NULL,
+    X_1 = modX,
+    X_2 = modX,
+    Z_1 = modY,
+    Z_2 = modZ,
+    S = modPsi,
+    area_idx = samp$PUMA,
+    wgt = modwgt,
+    n = NULL,
     predX = predX,
     predS = predPsi,
-    n_preds = NULL,
     nburn = nburn,
-    nsim  = nsim,
+    nsim = nsim,
     nthin = nthin,
-    sig2t = 5,
-    sig2e = 10,
-    tau_1_init = -1,
-    a_eps = 0.1,
-    b_eps = 0.1,
-    aeta  = 0.1,
-    beta  = 0.1,
-    alambda = 2,
-    blambda = 1
+    tau_1 = 1,
+    tau_2_init = 1
   )
 
   results_ug <- gaus_post(

@@ -1,21 +1,39 @@
 source("packages.r")
 source("functions.r")
 
-## Load data and basis functions
-pums_raw <- read.csv("IL21.csv") |>
-  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMA)))
+pums_vars <- c(
+  "PINCP",
+  "PWGTP",
+  "PUMA",
+  "AGEP",
+  "SEX",
+  "RAC1P",
+  "SCHL",
+  "POVPIP"
+)
 
-puma_sf <- tigris::pumas(state = "IL", year = 2019, cb = TRUE, class = "sf") |>
+pums_raw <- tidycensus::get_pums(
+  variables = pums_vars,
+  state = "IL",
+  year = 2021,
+  survey = "acs1",
+  recode = TRUE
+)
+
+puma_sf <- tigris::pumas(state = "IL", year = 2021, class = "sf") |>
   sf::st_transform(4326) |>
-  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMACE10)))
+  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMACE10))) |>
+  dplyr::arrange(PUMA)
 
-nb <- spdep::poly2nb(puma_sf)
-W_mat <- spdep::nb2mat(nb, style = "B", zero.policy = TRUE)
+stopifnot(identical(sort(unique(pums_raw$PUMA)), sort(unique(puma_sf$PUMA))))
 
-eig <- eigen(W_mat)
-K_basis <- 22
-basis_mat <- eig$vectors[, 1:K_basis, drop = FALSE]
-rownames(basis_mat) <- puma_sf$PUMA
+basis_obj <- build_adj_basis_abs(
+  area_sf = puma_sf,
+  area_id = "PUMA",
+  q = 0.25
+)
+
+basis_mat <- basis_obj$basis
 
 ## Prepare analysis data
 pums1 <- pums_raw |>
@@ -65,14 +83,15 @@ truth <- pums |>
     INCO = mean(INCO),
     POV = mean(POV),
     .groups = "drop"
-  )
+  ) |>
+  dplyr::arrange(PUMA)
 
 pcells <- pums |>
   dplyr::group_by(PUMA, SEX, BACH) |>
   dplyr::summarise(popsize = dplyr::n(), .groups = "drop")
 
 predX <- model.matrix(~ SEX + BACH - 1, data = pcells)
-predPsi <- basis_mat[as.character(pcells$PUMA), , drop = FALSE]
+predPsi <- basis_mat[match(as.character(pcells$PUMA), rownames(basis_mat)), , drop = FALSE]
 
 ## Simulation settings
 n_sim <- 100
@@ -112,6 +131,8 @@ for (k in seq_len(n_sim)) {
   samp$W <- 1 / samp$P
   samp$scaledWGT <- samp$W * nrow(samp) / sum(samp$W)
 
+  all_puma <- data.frame(PUMA = sort(unique(pums$PUMA)))
+
   compare_df <- samp |>
     dplyr::group_by(PUMA) |>
     dplyr::summarise(
@@ -122,13 +143,15 @@ for (k in seq_len(n_sim)) {
       weighted_means_POV = stats::weighted.mean(POV, W),
       weighted_means_EDU = stats::weighted.mean(EDU, W),
       .groups = "drop"
-    )
+    ) |>
+    dplyr::right_join(all_puma, by = "PUMA") |>
+    dplyr::arrange(PUMA)
 
   cor_set[k] <- stats::cor(samp$POV, samp$INCO)
 
   modwgt <- samp$scaledWGT
   modX <- model.matrix(~ SEX + BACH - 1, data = samp)
-  modPsi <- basis_mat[as.character(samp$PUMA), , drop = FALSE]
+  modPsi <- basis_mat[match(as.character(samp$PUMA), rownames(basis_mat)), , drop = FALSE]
   modY <- samp$INCO
   modZ <- samp$POV
 
@@ -166,37 +189,24 @@ for (k in seq_len(n_sim)) {
     b = 0.1
   )
 
-  mult_args <- list(
+  mult_fit <- MTSM_br(
     X_1 = modX,
     X_2 = modX,
     Z_1 = modY,
     Z_2 = modZ,
     S = modPsi,
-    sig2b = 1000,
+    area_idx = samp$PUMA,
     wgt = modwgt,
     n = NULL,
     predX = predX,
     predS = predPsi,
-    n_preds = NULL,
     nburn = nburn,
     nsim = nsim,
     nthin = nthin,
-    sig2t = 5,
-    sig2e = 10,
-    tau_1_init = -1,
-    a_eps = 0.1,
-    b_eps = 0.1,
-    aeta = 0.1,
-    beta = 0.1,
-    alambda = 2,
-    blambda = 1
+    tau_1 = 1,
+    tau_2_init = 1
   )
 
-  if ("tau_2_init" %in% names(formals(MTSM_br))) {
-    mult_args$tau_2_init <- 1
-  }
-
-  mult_fit <- do.call(MTSM_br, mult_args)
 
   results_ug <- gaus_post(
     preds = unis_wage$Preds,
@@ -321,7 +331,6 @@ for (i in seq_len(n_sim)) {
 }
 
 save.image("empirical_simulation_basis_results.RData")
-
 ## Store ratio summaries
 mse_ratio_mg <- mse_mg / mse_ug
 mse_ratio_mb <- mse_mb / mse_ub

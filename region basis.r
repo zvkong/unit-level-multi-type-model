@@ -23,15 +23,14 @@ puma_sf <- tigris::pumas(
   sf::st_transform(4326) |>
   dplyr::mutate(PUMA = sprintf("%05d", as.integer(.data$PUMACE10)))
 
-nb <- spdep::poly2nb(puma_sf)
-W_mat <- spdep::nb2mat(nb, style = "B", zero.policy = TRUE)
-
-eig <- eigen(W_mat)
-
-K_basis <- sum(
-  eig$values > 0
+basis_obj <- build_adj_basis_abs(
+  area_sf = puma_sf,
+  area_id = "PUMA",
+  q = 0.25
 )
-basis_mat <- eig$vectors[, 1:K_basis, drop = FALSE]
+
+basis_mat <- basis_obj$basis
+
 rownames(basis_mat) <- puma_sf$PUMA
 
 valid_pumas <- rownames(basis_mat)
@@ -135,44 +134,70 @@ pcells <- pums_samp |>
   dplyr::arrange(PUMA, SEX, BACH)
 
 predX <- model.matrix(~ SEX + BACH - 1, data = pcells)
-predS <- basis_mat[as.character(pcells$PUMA), , drop = FALSE]
+predS <- basis_mat[match(as.character(pcells$PUMA), rownames(basis_mat)), , drop = FALSE]
 
 pums <- pums_samp
 modX <- model.matrix(~ SEX + BACH - 1, data = pums)
-modS <- basis_mat[as.character(pums$PUMA), , drop = FALSE]
+modS <- basis_mat[match(as.character(pums$PUMA), rownames(basis_mat)), , drop = FALSE]
 modY <- pums$INCO
 modZ <- pums$POV
 modW <- pums$scaledWGT
 
-nsim <- 2000
-nburn <- 1000
+nsim <- 10
+nburn <- 10
 nthin <- 1
 
 unis_wage <- unis_gaus(
-  X = modX, Y = modY, S = modS,
-  sig2b = 1000, wgt = modW, n = NULL,
-  predX = predX, predS = predS,
-  nburn = nburn, nsim = nsim, nthin = nthin,
-  a = 0.5, b = 0.5, a_eps = 0.1, b_eps = 0.1
+  X = modX,
+  Y = modY,
+  S = modS,
+  sig2b = 1000,
+  wgt = modW,
+  n = NULL,
+  predX = predX,
+  predS = predS,
+  nburn = nburn,
+  nsim = nsim,
+  nthin = nthin,
+  a = 0.5,
+  b = 0.5,
+  a_eps = 0.1,
+  b_eps = 0.1
 )
 
 unis_pov <- unis_bios(
-  X = modX, Y = modZ, S = modS,
-  sig2b = 1000, wgt = modW, n = NULL,
-  predX = predX, predS = predS,
-  nburn = nburn, nsim = nsim, nthin = nthin,
-  a = 0.1, b = 0.1
+  X = modX,
+  Y = modZ,
+  S = modS,
+  sig2b = 1000,
+  wgt = modW,
+  n = NULL,
+  predX = predX,
+  predS = predS,
+  nburn = nburn,
+  nsim = nsim,
+  nthin = nthin,
+  a = 0.1,
+  b = 0.1
 )
 
 mult_br <- MTSM_br(
-  X_1 = modX, X_2 = modX, Z_1 = modY, Z_2 = modZ, S = modS,
-  sig2b = 1000, wgt = modW, n = NULL,
-  predX = predX, predS = predS, n_preds = NULL,
-  nburn = nburn, nsim = nsim, nthin = nthin,
-  sig2t = 1, sig2e = 5, tau_1_init = -1,
-  a_eps = 0.1, b_eps = 0.1, aeta = 0.1, beta = 0.1,
-  alambda = 1, blambda = 1
-)
+    X_1 = modX,
+    X_2 = modX,
+    Z_1 = modY,
+    Z_2 = modZ,
+    S = modS,
+    area_idx = pums$PUMA,
+    wgt = modW,
+    n = NULL,
+    predX = predX,
+    predS = predS,
+    nburn = nburn,
+    nsim = nsim,
+    nthin = nthin,
+    tau_1 = 1,
+    tau_2_init = 1
+  )
 
 puma_levels <- sort(unique(pcells$PUMA))
 true_mean_dummy <- stats::setNames(rep(NA_real_, length(puma_levels)), puma_levels)
@@ -226,7 +251,6 @@ sigma2_bios_ratio <- puma_sf |>
   dplyr::left_join(dplyr::tibble(PUMA = puma_levels, ratio = as.numeric(res_mb$sigma2 / res_ub$sigma2)), by = "PUMA")
 
 save.image("region_basis_results.RData")
-load("region_basis_results.RData")
 ratio_pal <- RColorBrewer::brewer.pal(9, "Greens")
 fill_pal <- rev(RColorBrewer::brewer.pal(9, "RdBu"))
 
@@ -344,8 +368,6 @@ boxplot(sigma2_bios_mapdat$mpov/sigma2_bios_mapdat$upov, main = "Bernoulli Varia
 abline(h = 1, col = 'red')
 
 par(mfrow = c(1, 2))
-
-load("region_bc.rdata")
 
 p_gaussian <- (plot_gaus | p_sig_gaus) + patchwork::plot_layout(widths = c(3, 1))
 p_binomial <- (plot_bios | p_sig_bios) + patchwork::plot_layout(widths = c(3, 1))

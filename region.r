@@ -139,7 +139,7 @@ modZ <- pums$POV
 modW <- pums$scaledWGT
 
 ## Fit models
-nsim <- 2000
+nsim <- 1000
 nburn <- 1000
 nthin <- 1
 
@@ -316,7 +316,6 @@ sigma2_bios_ratio <- puma_sf |>
   )
 
 save.image("region_results.RData")
-load("region_results.RData")
 ## Plot settings
 ratio_pal <- RColorBrewer::brewer.pal(9, "Greens")
 fill_pal <- rev(RColorBrewer::brewer.pal(9, "RdBu"))
@@ -542,7 +541,7 @@ abline(h = 1, col = 'red')
 
 par(mfrow = c(1, 2))
 
-load("region_bc.rdata")
+load("region_results.RData")
 
 p_gaussian <- (plot_gaus | p_sig_gaus) + patchwork::plot_layout(widths = c(3, 1))
 p_binomial <- (plot_bios | p_sig_bios) + patchwork::plot_layout(widths = c(3, 1))
