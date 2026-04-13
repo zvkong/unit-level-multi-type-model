@@ -1,183 +1,120 @@
-source("packages.r")
-source("functions.r")
+source("basis version/packages.r")
+source("basis version/functions.r")
+data_file <- "source data/IL23.csv"
 
-## Load data
-pums_vars <- c(
-  "PINCP",
-  "PWGTP",
-  "PUMA",
-  "AGEP",
-  "SEX",
-  "RAC1P",
-  "SCHL",
-  "POVPIP"
+dir.create("data", showWarnings = FALSE)
+dir.create("figs", showWarnings = FALSE)
+
+pums_raw <- readr::read_csv(data_file, show_col_types = FALSE)
+
+keep_vars <- intersect(
+  c("PUMA", "PWGTP", "SEX", "POVPIP", "PINCP", "SCHL", "AGEP"),
+  names(pums_raw)
 )
 
-pums21 <- tidycensus::get_pums(
-  variables = pums_vars,
-  state = "IL",
-  year = 2021,
-  survey = "acs1",
-  recode = TRUE
-) |>
-  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMA)))
-
-puma_sf <- tigris::pumas(
-  state = "IL",
-  year = 2021,
-  class = "sf"
-) |>
-  sf::st_transform(4326) |>
-  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMACE10))) |>
-  dplyr::arrange(PUMA)
-
-## Build adjacency spectral basis directly
-stopifnot(!anyDuplicated(puma_sf$PUMA))
-
-nb <- spdep::poly2nb(puma_sf, queen = TRUE)
-W <- spdep::nb2mat(nb, style = "B", zero.policy = TRUE)
-W <- (W + t(W)) / 2
-
-eig <- eigen(W, symmetric = TRUE)
-
-q_basis <- 0.25
-n_keep <- max(1L, ceiling(q_basis * length(eig$values)))
-keep <- order(abs(eig$values), decreasing = TRUE)[seq_len(n_keep)]
-
-basis_mat <- eig$vectors[, keep, drop = FALSE]
-rownames(basis_mat) <- puma_sf$PUMA
-colnames(basis_mat) <- paste0("bf", seq_len(ncol(basis_mat)))
-
-valid_pumas <- rownames(basis_mat)
-
-## Prepare sample data
-pums_samp <- pums21 |>
-  dplyr::select(PUMA, PWGTP, SEX, RAC1P, POVPIP, PINCP, SCHL, AGEP) |>
-  dplyr::filter(AGEP >= 18) |>
+pums <- pums_raw |>
+  dplyr::select(all_of(keep_vars)) |>
   tidyr::drop_na() |>
   dplyr::mutate(
     PUMA = sprintf("%05d", as.integer(PUMA)),
     PWGTP = as.numeric(PWGTP),
-    SEX = factor(SEX),
-    LOGINCO = log(as.numeric(PINCP)),
-    BACH = dplyr::if_else(SCHL >= 21, 1L, 0L),
-    POV = dplyr::if_else(POVPIP <= 100, 1L, 0L)
-  ) |>
-  dplyr::filter(is.finite(LOGINCO)) |>
-  dplyr::filter(PUMA %in% valid_pumas) |>
-  dplyr::mutate(
-    INCO = (LOGINCO - min(LOGINCO)) / (max(LOGINCO) - min(LOGINCO)),
-    scaledWGT = PWGTP * dplyr::n() / sum(PWGTP)
-  ) |>
-  dplyr::select(PUMA, SEX, BACH, INCO, POV, PWGTP, scaledWGT) |>
-  dplyr::arrange(PUMA, SEX, BACH)
-
-## Build poststratification cells
-v <- tidycensus::load_variables(2021, "acs1", cache = TRUE) |>
-  dplyr::filter(stringr::str_starts(name, "B15001_"))
-
-sex_total_vars <- v |>
-  dplyr::filter(label %in% c("Estimate!!Total:!!Male:", "Estimate!!Total:!!Female:")) |>
-  dplyr::transmute(
-    var = name,
-    SEX = dplyr::if_else(stringr::str_detect(label, "Male"), "Male", "Female")
+    POVPIP = as.numeric(POVPIP),
+    PINCP = as.numeric(PINCP),
+    SCHL = as.numeric(SCHL),
+    SEX = factor(SEX)
   )
 
-bach_vars <- v |>
-  dplyr::filter(
-    stringr::str_detect(label, "!!Male:|!!Female:"),
-    stringr::str_detect(label, "Bachelor's degree|Graduate or professional degree")
-  ) |>
-  dplyr::transmute(
-    var = name,
-    SEX = dplyr::case_when(
-      stringr::str_detect(label, "!!Male") ~ "Male",
-      stringr::str_detect(label, "!!Female") ~ "Female",
-      TRUE ~ NA_character_
-    )
-  ) |>
-  dplyr::filter(!is.na(SEX))
+if ("AGEP" %in% names(pums)) {
+  pums <- pums |>
+    dplyr::mutate(AGEP = as.numeric(AGEP)) |>
+    dplyr::filter(AGEP >= 18)
+}
 
-vars_needed <- c(sex_total_vars$var, bach_vars$var)
-
-raw <- tidycensus::get_acs(
-  geography = "puma",
-  state = "IL",
-  variables = vars_needed,
-  year = 2021,
-  survey = "acs1",
-  cache = TRUE
-) |>
-  dplyr::select(GEOID, NAME, variable, estimate)
-
-sex_totals <- raw |>
-  dplyr::inner_join(sex_total_vars, by = c("variable" = "var")) |>
-  dplyr::group_by(GEOID, NAME, SEX) |>
-  dplyr::summarise(pop_total = sum(estimate), .groups = "drop")
-
-bach <- raw |>
-  dplyr::inner_join(bach_vars, by = c("variable" = "var")) |>
-  dplyr::group_by(GEOID, NAME, SEX) |>
-  dplyr::summarise(pop_bach = sum(estimate), .groups = "drop")
-
-cells <- sex_totals |>
-  dplyr::left_join(bach, by = c("GEOID", "NAME", "SEX")) |>
-  dplyr::mutate(pop_bach = dplyr::coalesce(pop_bach, 0)) |>
-  dplyr::transmute(
-    PUMA = sprintf("%05d", as.integer(substr(GEOID, 3, nchar(GEOID)))),
-    puma_name = NAME,
-    SEX = SEX,
-    pop_bach = pop_bach,
-    pop_bach0 = pmax(pop_total - pop_bach, 0)
-  ) |>
-  tidyr::pivot_longer(
-    cols = c(pop_bach, pop_bach0),
-    names_to = "BACH",
-    values_to = "pop"
-  ) |>
+pums <- pums |>
   dplyr::mutate(
-    BACH = dplyr::if_else(BACH == "pop_bach", 1L, 0L),
-    SEX = factor(dplyr::if_else(SEX == "Male", "1", "2"), levels = c("1", "2"))
+    LOGINCO = log(PINCP),
+    POV = dplyr::if_else(POVPIP < 100, 1, 0),
+    BACH = factor(dplyr::if_else(SCHL >= 21, 1, 0))
   ) |>
-  dplyr::select(PUMA, SEX, BACH, pop, puma_name) |>
-  dplyr::arrange(PUMA, SEX, dplyr::desc(BACH))
-
-pcells <- pums_samp |>
-  dplyr::distinct(PUMA, SEX, BACH) |>
-  dplyr::left_join(cells, by = c("PUMA", "SEX", "BACH")) |>
-  dplyr::mutate(popsize = pop) |>
-  dplyr::select(PUMA, SEX, BACH, popsize) |>
+  dplyr::filter(is.finite(LOGINCO)) |>
+  dplyr::mutate(
+    INCO = (LOGINCO - min(LOGINCO)) / (max(LOGINCO) - min(LOGINCO))
+  ) |>
   dplyr::arrange(PUMA, SEX, BACH)
 
-## Design matrices
-predX <- model.matrix(~ SEX + BACH - 1, data = pcells)
-idx_pred <- match(as.character(pcells$PUMA), rownames(basis_mat))
-stopifnot(!anyNA(idx_pred))
-predS <- basis_mat[idx_pred, , drop = FALSE]
+area_levels <- sort(unique(pums$PUMA))
 
-pums <- pums_samp
+if (file.exists("IL_poststrat_cells.csv")) {
+  pcells <- readr::read_csv("IL_poststrat_cells.csv", show_col_types = FALSE) |>
+    dplyr::mutate(
+      PUMA = sprintf("%05d", as.integer(PUMA)),
+      SEX = factor(SEX, levels = levels(pums$SEX)),
+      BACH = factor(BACH, levels = levels(pums$BACH)),
+      popsize = as.numeric(popsize)
+    ) |>
+    dplyr::filter(PUMA %in% area_levels) |>
+    dplyr::arrange(factor(PUMA, levels = area_levels), SEX, BACH)
+} else {
+  pcells <- pums |>
+    dplyr::group_by(PUMA, SEX, BACH) |>
+    dplyr::summarise(popsize = dplyr::n(), .groups = "drop") |>
+    dplyr::arrange(factor(PUMA, levels = area_levels), SEX, BACH)
+}
+
+direct_area <- pums |>
+  dplyr::group_by(PUMA) |>
+  dplyr::summarise(
+    ht_inco = stats::weighted.mean(INCO, PWGTP),
+    ht_pov = stats::weighted.mean(POV, PWGTP),
+    .groups = "drop"
+  ) |>
+  dplyr::arrange(PUMA)
+
+predX <- model.matrix(~ SEX + BACH - 1, data = pcells)
+
+puma_sf <- tigris::pumas(state = "IL", year = 2021, class = "sf") |>
+  sf::st_transform(4326) |>
+  dplyr::mutate(PUMA = sprintf("%05d", as.integer(PUMACE10))) |>
+  dplyr::filter(PUMA %in% area_levels) |>
+  dplyr::arrange(factor(PUMA, levels = area_levels))
+
+if (!all(area_levels %in% puma_sf$PUMA)) {
+  stop("Some PUMAs in analysis data are missing from the shapefile.")
+}
+
+nb <- spdep::poly2nb(puma_sf, queen = TRUE)
+W_mat <- spdep::nb2mat(nb, style = "B", zero.policy = TRUE)
+
+eig <- eigen(W_mat, symmetric = TRUE)
+pos_id <- which(eig$values > 0)
+
+if (length(pos_id) == 0) {
+  stop("No positive eigenvalues found for basis construction.")
+}
+
+basis_mat <- eig$vectors[, pos_id, drop = FALSE]
+rownames(basis_mat) <- puma_sf$PUMA
+
+predPsi <- basis_mat[match(pcells$PUMA, rownames(basis_mat)), , drop = FALSE]
+
 modX <- model.matrix(~ SEX + BACH - 1, data = pums)
-idx_mod <- match(as.character(pums$PUMA), rownames(basis_mat))
-stopifnot(!anyNA(idx_mod))
-modS <- basis_mat[idx_mod, , drop = FALSE]
+modPsi <- basis_mat[match(pums$PUMA, rownames(basis_mat)), , drop = FALSE]
 modY <- pums$INCO
 modZ <- pums$POV
-modW <- pums$scaledWGT
+modwgt <- pums$PWGTP * nrow(pums) / sum(pums$PWGTP)
 
-## Fit models
-nsim <- 1000
 nburn <- 1000
+nsim <- 1000
 nthin <- 1
 
-unis_wage <- unis_gaus(
+fit_ug <- unis_gaus_fast(
   X = modX,
   Y = modY,
-  S = modS,
+  S = modPsi,
   sig2b = 1000,
-  wgt = modW,
-  n = NULL,
+  wgt = modwgt,
   predX = predX,
-  predS = predS,
+  predS = predPsi,
   nburn = nburn,
   nsim = nsim,
   nthin = nthin,
@@ -187,15 +124,15 @@ unis_wage <- unis_gaus(
   b_eps = 0.1
 )
 
-unis_pov <- unis_bios(
+fit_ub <- unis_bios_fast(
   X = modX,
   Y = modZ,
-  S = modS,
+  S = modPsi,
   sig2b = 1000,
-  wgt = modW,
+  wgt = modwgt,
   n = NULL,
   predX = predX,
-  predS = predS,
+  predS = predPsi,
   nburn = nburn,
   nsim = nsim,
   nthin = nthin,
@@ -203,389 +140,41 @@ unis_pov <- unis_bios(
   b = 0.1
 )
 
-mult_basis <- MTSM_basis(
+fit_mt <- MTSM_br_tau2_gaus_fast(
   X_1 = modX,
   X_2 = modX,
   Z_1 = modY,
   Z_2 = modZ,
-  S = modS,
-  area_idx = pums$PUMA,
+  S = modPsi,
   sig2b = 1000,
-  wgt = modW,
-  n_binom = NULL,
+  wgt = modwgt,
+  n = NULL,
   predX = predX,
-  predS = predS,
+  predS = predPsi,
   n_preds = NULL,
   nburn = nburn,
   nsim = nsim,
   nthin = nthin,
-  sig2t = 1,
-  tau_1_init = 1,
+  sig2t = 10,
+  sig2e = 10,
+  tau_2_init = 0,
   a_eps = 0.1,
   b_eps = 0.1,
   aeta = 0.1,
   beta = 0.1,
-  alambda = 1,
+  alambda = 2,
   blambda = 1
 )
 
-## Poststratify to PUMA
-puma_levels <- sort(unique(pcells$PUMA))
-true_mean_dummy <- stats::setNames(rep(NA_real_, length(puma_levels)), puma_levels)
-
-res_ug <- gaus_post(
-  preds = unis_wage$Preds,
-  sig2chain = unis_wage$sig2.chain,
-  true_mean = true_mean_dummy,
-  region = pcells$PUMA,
-  popsize = pcells$popsize
-)
-
-res_mg <- gaus_post(
-  preds = mult_basis$preds_gaus.chain,
-  sig2chain = mult_basis$sig2.chain,
-  true_mean = true_mean_dummy,
-  region = pcells$PUMA,
-  popsize = pcells$popsize
-)
-
-res_ub <- bios_post(
-  preds = unis_pov$Preds,
-  true_mean = true_mean_dummy,
-  region = pcells$PUMA,
-  popsize = pcells$popsize
-)
-
-res_mb <- bios_post(
-  preds = mult_basis$preds_bios.chain,
-  true_mean = true_mean_dummy,
-  region = pcells$PUMA,
-  popsize = pcells$popsize
-)
-
-## Direct estimators
-ht_by_puma <- pums |>
-  dplyr::group_by(PUMA) |>
-  dplyr::summarise(
-    ht_inco = stats::weighted.mean(INCO, PWGTP),
-    ht_pov = stats::weighted.mean(POV, PWGTP),
-    .groups = "drop"
-  )
-
-## Join for plotting
-gaus_mapdat <- puma_sf |>
-  dplyr::left_join(
-    dplyr::tibble(
-      PUMA = puma_levels,
-      ugaus = res_ug$est,
-      mgaus = res_mg$est
-    ),
-    by = "PUMA"
-  ) |>
-  dplyr::left_join(
-    ht_by_puma |>
-      dplyr::select(PUMA, ht_inco),
-    by = "PUMA"
-  )
-
-bios_mapdat <- puma_sf |>
-  dplyr::left_join(
-    dplyr::tibble(
-      PUMA = puma_levels,
-      upov = res_ub$est,
-      mpov = res_mb$est
-    ),
-    by = "PUMA"
-  ) |>
-  dplyr::left_join(
-    ht_by_puma |>
-      dplyr::select(PUMA, ht_pov),
-    by = "PUMA"
-  )
-
-sigma2_gaus_mapdat <- puma_sf |>
-  dplyr::left_join(
-    dplyr::tibble(
-      PUMA = puma_levels,
-      ugaus = as.numeric(res_ug$sigma2),
-      mgaus = as.numeric(res_mg$sigma2)
-    ),
-    by = "PUMA"
-  )
-
-sigma2_gaus_ratio <- puma_sf |>
-  dplyr::left_join(
-    dplyr::tibble(
-      PUMA = puma_levels,
-      ratio = as.numeric(res_mg$sigma2 / res_ug$sigma2)
-    ),
-    by = "PUMA"
-  )
-
-sigma2_bios_mapdat <- puma_sf |>
-  dplyr::left_join(
-    dplyr::tibble(
-      PUMA = puma_levels,
-      upov = as.numeric(res_ub$sigma2),
-      mpov = as.numeric(res_mb$sigma2)
-    ),
-    by = "PUMA"
-  )
-
-sigma2_bios_ratio <- puma_sf |>
-  dplyr::left_join(
-    dplyr::tibble(
-      PUMA = puma_levels,
-      ratio = as.numeric(res_mb$sigma2 / res_ub$sigma2)
-    ),
-    by = "PUMA"
-  )
-
-save.image("region_basis_results.RData")
-
-## Plot settings
-ratio_pal <- RColorBrewer::brewer.pal(9, "Greens")
-fill_pal <- rev(RColorBrewer::brewer.pal(9, "RdBu"))
-
-ct_est <- 0.99
-ct_var <- 0.99
-
-## Gaussian mean maps
-inco_est_long <- gaus_mapdat |>
-  dplyr::select(
-    PUMA,
-    `Horvitz–Thompson` = ht_inco,
-    `Multi-type` = mgaus,
-    `Univariate (Gaussian)` = ugaus,
-    geometry
-  ) |>
-  tidyr::pivot_longer(
-    cols = c(`Horvitz–Thompson`, `Multi-type`, `Univariate (Gaussian)`),
-    names_to = "source",
-    values_to = "estimate"
-  ) |>
-  dplyr::mutate(
-    source = factor(
-      source,
-      levels = c("Horvitz–Thompson", "Multi-type", "Univariate (Gaussian)")
-    )
-  )
-
-inco_cut <- stats::quantile(inco_est_long$estimate, ct_est, na.rm = TRUE)
-
-inco_est_long <- inco_est_long |>
-  dplyr::mutate(
-    estimate_plot = ifelse(estimate > inco_cut, NA_real_, estimate)
-  )
-
-plot_gaus <- ggplot2::ggplot(inco_est_long) +
-  ggplot2::geom_sf(ggplot2::aes(fill = estimate_plot), colour = NA) +
-  ggplot2::facet_wrap(~source, nrow = 1) +
-  ggplot2::scale_fill_gradientn(
-    colours = fill_pal,
-    name = "Transformed income",
-    na.value = "grey90",
-    limits = c(min(inco_est_long$estimate_plot, na.rm = TRUE), inco_cut)
-  ) +
-  ggplot2::labs(
-    title = "Transformed Income by PUMA",
-    subtitle = "INCO = min–max scaled log income"
-  ) +
-  ggplot2::theme_minimal()
-
-## Binomial mean maps
-pov_est_long <- bios_mapdat |>
-  dplyr::select(
-    PUMA,
-    `Horvitz–Thompson` = ht_pov,
-    `Multi-type` = mpov,
-    `Univariate (Bernoulli)` = upov,
-    geometry
-  ) |>
-  tidyr::pivot_longer(
-    cols = c(`Horvitz–Thompson`, `Multi-type`, `Univariate (Bernoulli)`),
-    names_to = "source",
-    values_to = "estimate"
-  ) |>
-  dplyr::mutate(
-    source = factor(
-      source,
-      levels = c("Horvitz–Thompson", "Multi-type", "Univariate (Bernoulli)")
-    )
-  )
-
-pov_cut <- stats::quantile(pov_est_long$estimate, ct_est, na.rm = TRUE)
-
-pov_est_long <- pov_est_long |>
-  dplyr::mutate(
-    estimate_plot = ifelse(estimate > pov_cut, NA_real_, estimate)
-  )
-
-plot_bios <- ggplot2::ggplot(pov_est_long) +
-  ggplot2::geom_sf(ggplot2::aes(fill = estimate_plot), colour = NA) +
-  ggplot2::facet_wrap(~source, nrow = 1) +
-  ggplot2::scale_fill_gradientn(
-    colours = fill_pal,
-    name = "Poverty rate",
-    na.value = "grey90",
-    limits = c(min(pov_est_long$estimate_plot, na.rm = TRUE), pov_cut)
-  ) +
-  ggplot2::labs(title = "Poverty Rate by PUMA") +
-  ggplot2::theme_minimal()
-
-## Gaussian variance maps
-inco_var_long <- sigma2_gaus_mapdat |>
-  dplyr::select(
-    PUMA,
-    `Multi-type` = mgaus,
-    `Univariate (Gaussian)` = ugaus,
-    geometry
-  ) |>
-  tidyr::pivot_longer(
-    cols = c(`Multi-type`, `Univariate (Gaussian)`),
-    names_to = "source",
-    values_to = "sigma2"
-  ) |>
-  dplyr::mutate(
-    source = factor(source, levels = c("Multi-type", "Univariate (Gaussian)"))
-  )
-
-inco_var_cut <- stats::quantile(inco_var_long$sigma2, ct_var, na.rm = TRUE)
-
-inco_var_long <- inco_var_long |>
-  dplyr::mutate(
-    sigma2_plot = ifelse(sigma2 > inco_var_cut, NA_real_, sigma2)
-  )
-
-plot_sigma_gaus <- ggplot2::ggplot(inco_var_long) +
-  ggplot2::geom_sf(ggplot2::aes(fill = sigma2_plot), colour = NA) +
-  ggplot2::facet_wrap(~source, nrow = 1) +
-  ggplot2::scale_fill_gradientn(
-    colours = fill_pal,
-    name = expression(sigma^2),
-    na.value = "grey90",
-    limits = c(min(inco_var_long$sigma2_plot, na.rm = TRUE), inco_var_cut)
-  ) +
-  ggplot2::labs(title = "Posterior Variance by PUMA") +
-  ggplot2::theme_minimal()
-
-plot_sigma_gaus_ratio <- ggplot2::ggplot(sigma2_gaus_ratio) +
-  ggplot2::geom_sf(ggplot2::aes(fill = ratio), colour = NA) +
-  ggplot2::scale_fill_gradientn(
-    colours = ratio_pal,
-    name = expression(sigma^2[Multi-type] / sigma^2[Univariate]),
-    na.value = "grey90",
-    limits = c(0, 2)
-  ) +
-  ggplot2::labs(title = "Variance Ratio") +
-  ggplot2::theme_minimal()
-
-## Binomial variance maps
-pov_var_long <- sigma2_bios_mapdat |>
-  dplyr::select(
-    PUMA,
-    `Multi-type` = mpov,
-    `Univariate (Bernoulli)` = upov,
-    geometry
-  ) |>
-  tidyr::pivot_longer(
-    cols = c(`Multi-type`, `Univariate (Bernoulli)`),
-    names_to = "source",
-    values_to = "sigma2"
-  ) |>
-  dplyr::mutate(
-    source = factor(source, levels = c("Multi-type", "Univariate (Bernoulli)"))
-  )
-
-pov_var_cut <- stats::quantile(pov_var_long$sigma2, ct_var, na.rm = TRUE)
-
-pov_var_long <- pov_var_long |>
-  dplyr::mutate(
-    sigma2_plot = ifelse(sigma2 > pov_var_cut, NA_real_, sigma2)
-  )
-
-plot_sigma_bios <- ggplot2::ggplot(pov_var_long) +
-  ggplot2::geom_sf(ggplot2::aes(fill = sigma2_plot), colour = NA) +
-  ggplot2::facet_wrap(~source, nrow = 1) +
-  ggplot2::scale_fill_gradientn(
-    colours = fill_pal,
-    name = expression(sigma^2),
-    na.value = "grey90",
-    limits = c(min(pov_var_long$sigma2_plot, na.rm = TRUE), pov_var_cut)
-  ) +
-  ggplot2::labs(title = "Posterior Variance by PUMA") +
-  ggplot2::theme_minimal()
-
-plot_sigma_bios_ratio <- ggplot2::ggplot(sigma2_bios_ratio) +
-  ggplot2::geom_sf(ggplot2::aes(fill = ratio), colour = NA) +
-  ggplot2::scale_fill_gradientn(
-    colours = ratio_pal,
-    name = expression(sigma^2[Multi-type] / sigma^2[Univariate]),
-    na.value = "grey90",
-    limits = c(0, 1)
-  ) +
-  ggplot2::labs(title = "Variance Ratio") +
-  ggplot2::theme_minimal()
-
-## Combine and save
-p_gaus_sigma <- plot_sigma_gaus | plot_sigma_gaus_ratio
-p_bios_sigma <- plot_sigma_bios | plot_sigma_bios_ratio 
-
-for (p in c("p_gaus_sigma", "p_bios_sigma")) {
-  ggsave(
-    file.path("figs", paste0(p, ".png")),
-    plot = get(p),
-    width = 5.5,
-    height = 1,
-    dpi = 500
-  )
-}
-
-p_sig_gaus <- ggplot(sigma2_gaus_mapdat, aes(x = mgaus, y = ugaus)) +
-  geom_point(size = 1) +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  labs(
-    x = expression(sigma^2[Multi-type]),
-    y = expression(sigma^2[Univariate]),
-    title = "Gaussian Variance Comparison"
-  ) +
-  theme_minimal()
-
-p_sig_bios <- ggplot(sigma2_bios_mapdat, aes(x = mpov, y = upov)) +
-  geom_point(size = 1) +
-  geom_abline(slope = 1, intercept = 0, color = "red") +
-  labs(
-    x = expression(sigma^2[Multi-type]),
-    y = expression(sigma^2[Univariate]),
-    title = "Bernoulli Variance Comparison"
-  ) +
-  theme_minimal()
-
-p_gaussian <- (plot_gaus | p_sig_gaus) + patchwork::plot_layout(widths = c(3, 1))
-p_binomial <- (plot_bios | p_sig_bios) + patchwork::plot_layout(widths = c(3, 1))
-
-for (p in c("p_gaussian", "p_binomial")) {
-  ggsave(
-    file.path("figs", paste0(p, ".png")),
-    plot = get(p),
-    width = 10.5,
-    height = 3,
-    dpi = 300
-  )
-}
-
-ggplot2::ggsave(
-  filename = "p_gaussian_combined.png",
-  plot = p_gaussian,
-  width = 16,
-  height = 5,
-  dpi = 300
-)
-
-ggplot2::ggsave(
-  filename = "p_binomial_combined.png",
-  plot = p_binomial,
-  width = 16,
-  height = 5,
-  dpi = 300
+save(
+  pums,
+  pcells,
+  puma_sf,
+  area_levels,
+  basis_mat,
+  direct_area,
+  fit_ug,
+  fit_ub,
+  fit_mt,
+  file = file.path("data", "region_basis_tau_in_gauss_results.RData")
 )
