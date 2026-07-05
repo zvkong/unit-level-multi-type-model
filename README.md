@@ -123,14 +123,14 @@ This script:
 - loads `data/region_basis_tau_in_gauss_results.RData`,
 - computes region-level summaries,
 - compares posterior variances across models,
-- writes summary tables,
-- saves figures to `figs/`.
+- writes summary tables to `results/table/region/`,
+- saves figures to `results/fig/region/`.
 
 Typical outputs include:
-- `results/basis_region_summary.csv`
-- `results/basis_region_variance_summary.csv`
+- `results/table/region/basis_region_summary.csv`
+- `results/table/region/basis_region_variance_summary.csv`
 - `data/region_result_complete_basis.RData`
-- figures in `figs/`
+- figures in `results/fig/region/`
 
 ### 5. Run the empirical simulation study
 
@@ -162,18 +162,19 @@ This script:
 - loads the saved simulation results,
 - computes MSE, interval score, and coverage summaries,
 - produces both replicate-level and area-level comparison tables,
-- saves figures to `figs/`.
+- writes summary tables to `results/table/empirical/`,
+- saves figures to `results/fig/empirical/`.
 
 Typical outputs include:
-- `results/basis_summary_table_area.csv`
-- `results/basis_summary_table_rep.csv`
-- `results/basis_absolute_table.csv`
-- `results/basis_paired_table.csv`
-- `results/basis_better_prop_table.csv`
-- `results/basis_paired_replicate_metrics.csv`
-- `results/basis_paired_area_metrics.csv`
-- `results/basis_better_prop_area_table.csv`
-- figures in `figs/`
+- `results/table/empirical/basis_summary_table_area.csv`
+- `results/table/empirical/basis_summary_table_rep.csv`
+- `results/table/empirical/basis_absolute_table.csv`
+- `results/table/empirical/basis_paired_table.csv`
+- `results/table/empirical/basis_better_prop_table.csv`
+- `results/table/empirical/basis_paired_replicate_metrics.csv`
+- `results/table/empirical/basis_paired_area_metrics.csv`
+- `results/table/empirical/basis_better_prop_area_table.csv`
+- figures in `results/fig/empirical/`
 
 ### 7. Optional: direct-estimator benchmark
 
@@ -189,14 +190,19 @@ The main scripts create these folders if they do not already exist:
 
 ```text
 data/
-figs/
 results/
+  fig/
+    empirical/
+    region/
+  table/
+    empirical/
+    region/
 ```
 
 Typical outputs are:
 - saved `.RData` objects in `data/`
-- `.csv` summary tables in `results/`
-- `.png` figures in `figs/`
+- `.csv` summary tables in `results/table/`
+- `.png` figures in `results/fig/`
 
 ## Notes
 

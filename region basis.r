@@ -47,11 +47,9 @@ source("functions.r")
 data_file <- "source data/IL23.csv"
 out_dir <- "data"
 out_file <- file.path(out_dir, "region_basis_tau_in_gauss_results.RData")
-fig_dir <- "figs"
 run_models <- TRUE
 
 dir.create(out_dir, recursive = TRUE, showWarnings = FALSE)
-dir.create(fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 fetch_acs_raw_cells <- function(vars_needed, year = 2023, state = "17") {
   var_api <- paste0(vars_needed, "E")

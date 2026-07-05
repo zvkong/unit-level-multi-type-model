@@ -1,8 +1,11 @@
 source("packages.r")
 source("functions.r")
 
-dir.create("figs", showWarnings = FALSE)
-dir.create("results", showWarnings = FALSE)
+empirical_table_dir <- file.path("results", "table", "empirical")
+empirical_fig_dir <- file.path("results", "fig", "empirical")
+
+dir.create(empirical_table_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(empirical_fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 interval_score <- function(lower, upper, truth, alpha = 0.05) {
   width <- upper - lower
@@ -416,15 +419,15 @@ print(better_prop_table)
 print(final_plot)
 print(final_plot2)
 
-readr::write_csv(summary_table_area, file.path("results", "basis_summary_table_area.csv"))
-readr::write_csv(summary_table_rep, file.path("results", "basis_summary_table_rep.csv"))
-readr::write_csv(basis_absolute_table, file.path("results", "basis_absolute_table.csv"))
-readr::write_csv(basis_paired_table, file.path("results", "basis_paired_table.csv"))
-readr::write_csv(better_prop_table, file.path("results", "basis_better_prop_table.csv"))
-readr::write_csv(paired_rep, file.path("results", "basis_paired_replicate_metrics.csv"))
+readr::write_csv(summary_table_area, file.path(empirical_table_dir, "basis_summary_table_area.csv"))
+readr::write_csv(summary_table_rep, file.path(empirical_table_dir, "basis_summary_table_rep.csv"))
+readr::write_csv(basis_absolute_table, file.path(empirical_table_dir, "basis_absolute_table.csv"))
+readr::write_csv(basis_paired_table, file.path(empirical_table_dir, "basis_paired_table.csv"))
+readr::write_csv(better_prop_table, file.path(empirical_table_dir, "basis_better_prop_table.csv"))
+readr::write_csv(paired_rep, file.path(empirical_table_dir, "basis_paired_replicate_metrics.csv"))
 
-ggsave(file.path("figs", "empirical_basis_main_plot.png"), final_plot, width = 14, height = 12, dpi = 300)
-ggsave(file.path("figs", "empirical_basis_direct_compare_plot.png"), final_plot2, width = 12, height = 5, dpi = 300)
+ggsave(file.path(empirical_fig_dir, "empirical_basis_main_plot.png"), final_plot, width = 14, height = 12, dpi = 300)
+ggsave(file.path(empirical_fig_dir, "empirical_basis_direct_compare_plot.png"), final_plot2, width = 12, height = 5, dpi = 300)
 
 
 area_id <- if ("PUMA" %in% names(truth)) as.character(truth$PUMA) else sprintf("Area_%03d", seq_len(n_area))
@@ -578,8 +581,8 @@ print(better_prop_area_table)
 print(final_plot_area)
 print(final_plot2_area)
 
-readr::write_csv(paired_area, file.path("results", "basis_paired_area_metrics.csv"))
-readr::write_csv(better_prop_area_table, file.path("results", "basis_better_prop_area_table.csv"))
+readr::write_csv(paired_area, file.path(empirical_table_dir, "basis_paired_area_metrics.csv"))
+readr::write_csv(better_prop_area_table, file.path(empirical_table_dir, "basis_better_prop_area_table.csv"))
 
-ggsave(file.path("figs", "empirical_basis_main_plot_area.png"), final_plot_area, width = 14, height = 12, dpi = 300)
-ggsave(file.path("figs", "empirical_basis_direct_compare_plot_area.png"), final_plot2_area, width = 12, height = 5, dpi = 300)
+ggsave(file.path(empirical_fig_dir, "empirical_basis_main_plot_area.png"), final_plot_area, width = 14, height = 12, dpi = 300)
+ggsave(file.path(empirical_fig_dir, "empirical_basis_direct_compare_plot_area.png"), final_plot2_area, width = 12, height = 5, dpi = 300)

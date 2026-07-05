@@ -1,6 +1,9 @@
 source("packages.r")
 source("functions.r")
 
+region_table_dir <- file.path("results", "table", "region")
+region_fig_dir <- file.path("results", "fig", "region")
+
 load("data/region_basis_tau_in_gauss_results.RData")
 if (!exists("fit_ug") && exists("unis_wage")) {
   fit_ug <- unis_wage
@@ -165,18 +168,18 @@ adv_gaus <- plot_advanced_metrics(region_summary, "uni_gaussian_var", "multi_gau
 adv_bios <- plot_advanced_metrics(region_summary, "uni_binomial_var", "multi_binomial_var", "uni_binomial_lb", "uni_binomial_ub", "uni_binomial_mean", "multi_binomial_lb", "multi_binomial_ub", "multi_binomial_mean", "(Binomial)")
 
 dir.create("data", showWarnings = FALSE)
-dir.create("figs", showWarnings = FALSE)
-dir.create("results", showWarnings = FALSE)
+dir.create(region_table_dir, recursive = TRUE, showWarnings = FALSE)
+dir.create(region_fig_dir, recursive = TRUE, showWarnings = FALSE)
 
 save.image("data/region_result_complete_basis.RData")
-readr::write_csv(region_summary, file.path("results", "basis_region_summary.csv"))
-readr::write_csv(variance_summary, file.path("results", "basis_region_variance_summary.csv"))
+readr::write_csv(region_summary, file.path(region_table_dir, "basis_region_summary.csv"))
+readr::write_csv(variance_summary, file.path(region_table_dir, "basis_region_variance_summary.csv"))
 
-ggsave(file.path("figs", "p_gaussian_tau_in_gauss_basis.png"), p_gaussian_base, width = 10.5, height = 3, dpi = 300)
-ggsave(file.path("figs", "p_binomial_tau_in_gauss_basis.png"), p_binomial_base, width = 10.5, height = 3, dpi = 300)
+ggsave(file.path(region_fig_dir, "p_gaussian_tau_in_gauss_basis.png"), p_gaussian_base, width = 10.5, height = 3, dpi = 300)
+ggsave(file.path(region_fig_dir, "p_binomial_tau_in_gauss_basis.png"), p_binomial_base, width = 10.5, height = 3, dpi = 300)
 ## save name as basis
-ggsave(file.path("figs", "p_gaussian_base_basis.png"), adv_gaus$comb, width = 10.5, height = 6, dpi = 300)
-ggsave(file.path("figs", "p_binomial_base_basis.png"), adv_bios$comb, width = 10.5, height = 6, dpi = 300)
+ggsave(file.path(region_fig_dir, "p_gaussian_base_basis.png"), adv_gaus$comb, width = 10.5, height = 6, dpi = 300)
+ggsave(file.path(region_fig_dir, "p_binomial_base_basis.png"), adv_bios$comb, width = 10.5, height = 6, dpi = 300)
 print(region_summary)
 print(variance_summary)
 
@@ -244,7 +247,7 @@ final_region_plot <- top_row / bottom_row +
   patchwork::plot_layout(heights = c(1, 1))
 
 ggsave(
-  file.path("figs", "region_basis_main.png"),
+  file.path(region_fig_dir, "region_basis_main.png"),
   final_region_plot,
   width = 13,
   height = 8.5,

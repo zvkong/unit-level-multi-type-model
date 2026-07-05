@@ -4,7 +4,6 @@ suppressPackageStartupMessages(library(survey))
 data_file <- "source data/IL23.csv"
 
 dir.create("data", showWarnings = FALSE)
-dir.create("figs", showWarnings = FALSE)
 
 interval_score <- function(lower, upper, truth, alpha = 0.05) {
   width <- upper - lower
@@ -261,7 +260,9 @@ print(direct_rep_metrics)
 #   file = file.path("data", "empirical_basis_direct_only_results.RData")
 # )
 
-# readr::write_csv(summary_table_area, file.path("results", "basis_direct_summary_table_area.csv"))
-# readr::write_csv(summary_table_rep, file.path("results", "basis_direct_summary_table_rep.csv"))
-# readr::write_csv(direct_area_metrics, file.path("results", "basis_direct_area_metrics.csv"))
-# readr::write_csv(direct_rep_metrics, file.path("results", "basis_direct_rep_metrics.csv"))
+# direct_table_dir <- file.path("results", "table", "empirical")
+# dir.create(direct_table_dir, recursive = TRUE, showWarnings = FALSE)
+# readr::write_csv(summary_table_area, file.path(direct_table_dir, "basis_direct_summary_table_area.csv"))
+# readr::write_csv(summary_table_rep, file.path(direct_table_dir, "basis_direct_summary_table_rep.csv"))
+# readr::write_csv(direct_area_metrics, file.path(direct_table_dir, "basis_direct_area_metrics.csv"))
+# readr::write_csv(direct_rep_metrics, file.path(direct_table_dir, "basis_direct_rep_metrics.csv"))

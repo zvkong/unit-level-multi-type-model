@@ -4,7 +4,6 @@ source("functions.r")
 data_file <- "source data/IL23.csv"
 
 dir.create("data", showWarnings = FALSE)
-dir.create("figs", showWarnings = FALSE)
 
 pums_raw <- readr::read_csv(data_file, show_col_types = FALSE)
 
