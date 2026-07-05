@@ -166,10 +166,11 @@ adv_bios <- plot_advanced_metrics(region_summary, "uni_binomial_var", "multi_bin
 
 dir.create("data", showWarnings = FALSE)
 dir.create("figs", showWarnings = FALSE)
+dir.create("results", showWarnings = FALSE)
 
 save.image("data/region_result_complete_basis.RData")
-readr::write_csv(region_summary, "basis_region_summary.csv")
-readr::write_csv(variance_summary, "basis_region_variance_summary.csv")
+readr::write_csv(region_summary, file.path("results", "basis_region_summary.csv"))
+readr::write_csv(variance_summary, file.path("results", "basis_region_variance_summary.csv"))
 
 ggsave(file.path("figs", "p_gaussian_tau_in_gauss_basis.png"), p_gaussian_base, width = 10.5, height = 3, dpi = 300)
 ggsave(file.path("figs", "p_binomial_tau_in_gauss_basis.png"), p_binomial_base, width = 10.5, height = 3, dpi = 300)

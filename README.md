@@ -127,8 +127,8 @@ This script:
 - saves figures to `figs/`.
 
 Typical outputs include:
-- `basis_region_summary.csv`
-- `basis_region_variance_summary.csv`
+- `results/basis_region_summary.csv`
+- `results/basis_region_variance_summary.csv`
 - `data/region_result_complete_basis.RData`
 - figures in `figs/`
 
@@ -165,14 +165,14 @@ This script:
 - saves figures to `figs/`.
 
 Typical outputs include:
-- `basis_summary_table_area.csv`
-- `basis_summary_table_rep.csv`
-- `basis_absolute_table.csv`
-- `basis_paired_table.csv`
-- `basis_better_prop_table.csv`
-- `basis_paired_replicate_metrics.csv`
-- `basis_paired_area_metrics.csv`
-- `basis_better_prop_area_table.csv`
+- `results/basis_summary_table_area.csv`
+- `results/basis_summary_table_rep.csv`
+- `results/basis_absolute_table.csv`
+- `results/basis_paired_table.csv`
+- `results/basis_better_prop_table.csv`
+- `results/basis_paired_replicate_metrics.csv`
+- `results/basis_paired_area_metrics.csv`
+- `results/basis_better_prop_area_table.csv`
 - figures in `figs/`
 
 ### 7. Optional: direct-estimator benchmark
@@ -190,11 +190,12 @@ The main scripts create these folders if they do not already exist:
 ```text
 data/
 figs/
+results/
 ```
 
 Typical outputs are:
 - saved `.RData` objects in `data/`
-- `.csv` summary tables in the repository root
+- `.csv` summary tables in `results/`
 - `.png` figures in `figs/`
 
 ## Notes

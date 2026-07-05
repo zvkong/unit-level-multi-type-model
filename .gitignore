@@ -11,6 +11,9 @@ data/empirical_basis_tau_in_gauss.RData
 # Local code snapshots.
 local_code_backup/
 
+# Generated summary tables.
+results/
+
 empirical results show
 empirical bym.r
 region bym.r
