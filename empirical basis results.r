@@ -1,6 +1,8 @@
 source("packages.r")
 source("functions.r")
 
+dir.create("figs", showWarnings = FALSE)
+
 interval_score <- function(lower, upper, truth, alpha = 0.05) {
   width <- upper - lower
   penalty_low  <- (2 / alpha) * pmax(lower - truth, 0)
@@ -8,7 +10,7 @@ interval_score <- function(lower, upper, truth, alpha = 0.05) {
   width + penalty_low + penalty_high
 }
 
-load(file.path("data", "empirical_basis_tau_in_gauss.RData"))
+load(file.path("data", "empirical_basis_tau_in_gauss_results.RData"))
 ## traceplot of fit
 n_area <- nrow(truth)
 n_rep <- dim(ubios_pre)[2]

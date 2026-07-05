@@ -2,6 +2,15 @@
 *.rdata
 *.Rdata
 *.png
+.DS_Store
+basis_*.csv
+
+# External diagnostic baseline data.
+data/empirical_basis_tau_in_gauss.RData
+
+# Local code snapshots.
+local_code_backup/
+
 empirical results show
 empirical bym.r
 region bym.r
