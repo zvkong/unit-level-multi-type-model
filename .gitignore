@@ -1,20 +1,21 @@
-*.RData
-*.rdata
-*.Rdata
-*.png
-.DS_Store
-basis_*.csv
+# Only the current code sample, its source inputs and this file are tracked.
+/*
+!/.gitignore
+!/main/
+/JSSAM_modify/
 
-# External diagnostic baseline data.
-data/empirical_basis_tau_in_gauss.RData
+/main/*
+!/main/packages.r
+!/main/functions.r
+!/main/empirical study.r
+!/main/region study.r
+!/main/README.md
+!/main/data/
 
-# Local code snapshots.
-local_code_backup/
-
-# Generated summary tables.
-results/
-
-empirical results show
-empirical bym.r
-region bym.r
-HT_result.r
+# Keep the five original inputs; results and local validation notes stay ignored.
+/main/data/*
+!/main/data/IL23.csv
+!/main/data/il_puma_2023_sf.rds
+!/main/data/il_puma_2020_cb_sf.rds
+!/main/data/acs2023_b15001_var_maps.rds
+!/main/data/acs2023_il_puma_b15001_raw_cells.rds
