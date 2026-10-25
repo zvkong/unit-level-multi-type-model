@@ -6,6 +6,7 @@
 
 /main/*
 !/main/packages.r
+!/main/generate_data.r
 !/main/functions.r
 !/main/empirical study.r
 !/main/region study.r

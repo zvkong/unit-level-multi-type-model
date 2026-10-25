@@ -7,6 +7,7 @@ R code comparing survey-weighted Gaussian, Binomial and joint spatial models for
 | File | Purpose |
 |---|---|
 | `main/packages.r` | Loads the required R packages. |
+| `main/generate_data.r` | Optional: downloads the original PUMS records and rebuilds the two boundary objects and ACS population inputs. |
 | `main/functions.r` | Defines `uni_gaus()` (Gaussian), `uni_bio()` (Binomial), `multi()` (joint), and shared transformation, prediction, Direct estimation and summary functions. |
 | `main/empirical study.r` | Builds the fixed population, samples units, estimates lambda within each sample, fits three models and evaluates predictions against population truth. |
 | `main/region study.r` | Processes the observed ACS sample and external population counts, fits three models, and produces regional estimates and maps. |
@@ -15,7 +16,15 @@ R code comparing survey-weighted Gaussian, Binomial and joint spatial models for
 
 ## Input data
 
-Five source files are included in `main/data/`.
+Five source files are included in `main/data/`. Both studies can run directly using these files. **Running `main/generate_data.r` is optional and is not required to run the analyses.**
+
+Only if you want to download and regenerate the inputs, install `tigris` and `jsonlite` in addition to the analysis packages, and set the `CENSUS_API_KEY` environment variable to your [Census API key](https://api.census.gov/data/key_signup.html). These additional packages and the API key are not needed when using the included data. Run from the repository root:
+
+```r
+source("./main/generate_data.r")
+```
+
+The script downloads the original [2023 one-year Illinois PUMS file](https://www2.census.gov/programs-surveys/acs/data/pums/2023/1-Year/), the 2023 TIGER/Line and 2020 cartographic PUMA boundaries, and the [2023 one-year B15001 estimates](https://api.census.gov/data/2023/acs/acs1/groups/B15001.html). It writes the five files below and replaces matching input files. The API key is read from the environment and is not stored in the code or generated data.
 
 | File | Purpose |
 |---|---|
